@@ -152,7 +152,7 @@ void main() {
     await tester.tap(find.text('课程详情'));
     await tester.pumpAndSettle();
 
-    expect(find.text('课程名称'), findsOneWidget);
+    expect(find.text('课程详情'), findsAtLeastNWidgets(1));
     expect(find.text('上课地点'), findsOneWidget);
     expect(find.text('任课教师'), findsOneWidget);
     expect(find.text('学分'), findsOneWidget);

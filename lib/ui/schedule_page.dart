@@ -381,9 +381,11 @@ class WeekGrid extends StatelessWidget {
               Icon(Icons.swipe_outlined,
                   size: 15, color: colors.onSurfaceVariant),
               const SizedBox(width: 5),
-              Text('左右滑动切换周次 · 课程卡片可点开编辑 · 冲突课程会合并显示',
-                  style:
-                      TextStyle(fontSize: 11, color: colors.onSurfaceVariant))
+              Expanded(
+                child: Text('左右滑动切换周次 · 点开查看课程',
+                    style: TextStyle(
+                        fontSize: 11, color: colors.onSurfaceVariant)),
+              )
             ]),
           ],
         ),
@@ -478,11 +480,13 @@ class _SlotLabel extends StatelessWidget {
       child: Column(children: [
         Text('${slot.index}',
             style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
-        const SizedBox(height: 3),
-        Text(formatTime(slot.startMinutes),
+        const SizedBox(height: 2),
+        Text('${formatTime(slot.startMinutes)}–${formatTime(slot.endMinutes)}',
+            maxLines: 1,
+            softWrap: false,
             style: TextStyle(
-                fontSize: 8,
-                color: Theme.of(context).colorScheme.onSurfaceVariant))
+                fontSize: 7,
+                color: Theme.of(context).colorScheme.onSurfaceVariant)),
       ]));
 }
 
@@ -887,11 +891,6 @@ Future<void> showCourseDetail(
                         shape: BoxShape.circle))
               ]),
               const SizedBox(height: 16),
-              const Text(
-                '课程信息',
-                style: TextStyle(fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 8),
               _CourseDetailFields(event: event),
               const SizedBox(height: 20),
               Wrap(spacing: 8, runSpacing: 8, children: [
@@ -944,8 +943,7 @@ class _CourseDetailFields extends StatelessWidget {
           );
     final scheme = Theme.of(context).colorScheme;
     final fields = [
-      ('课程名称', displayCourseTitle(course.title)),
-      ('上课地点', displayCourseMetadata(course.room, const ['上课地点', '地点', '教室'])),
+      ('上课地点', displayCourseMetadata(event.room, const ['上课地点', '地点', '教室'])),
       ('任课教师', displayCourseMetadata(course.teacher, const ['任课教师', '教师'])),
       ('学分', credits),
     ];
