@@ -75,19 +75,25 @@ jobs:
         env:
           TAG: ${{ github.ref_name }}
         run: |
-          response=$(curl --silent --show-error -w '\n%{http_code}' \
-            -X POST "https://gitee.com/api/v5/repos/$GITEE_OWNER/$GITEE_REPO/releases" \
-            -F "access_token=$GITEE_TOKEN" \
-            -F "tag_name=$TAG" \
-            -F "name=$TAG" \
-            -F "body=Android release $TAG" \
-            -F "target_commitish=$GITEE_BRANCH")
-          status="${response##*$'\n'}"
-          body="${response%$'\n'*}"
-          test "$status" -ge 200 -a "$status" -lt 300 || { echo "$body"; exit 1; }
-          echo "$body" > gitee-release.json
-          release_id=$(jq -r '.id // empty' gitee-release.json)
-          test -n "$release_id" || { cat gitee-release.json; exit 1; }
+          release_id=$(curl --silent --show-error --retry 5 --retry-all-errors \
+            "https://gitee.com/api/v5/repos/$GITEE_OWNER/$GITEE_REPO/releases/tags/$TAG?access_token=$GITEE_TOKEN" \
+            | jq -r '.id // empty' || true)
+          if test -z "$release_id"; then
+            response=$(curl --silent --show-error --http1.1 \
+              --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 30 --max-time 120 \
+              -w '\n%{http_code}' \
+              -X POST "https://gitee.com/api/v5/repos/$GITEE_OWNER/$GITEE_REPO/releases" \
+              -F "access_token=$GITEE_TOKEN" \
+              -F "tag_name=$TAG" \
+              -F "name=$TAG" \
+              -F "body=Android release $TAG" \
+              -F "target_commitish=$GITEE_BRANCH")
+            status="${response##*$'\n'}"
+            body="${response%$'\n'*}"
+            test "$status" -ge 200 -a "$status" -lt 300 || { echo "$body"; exit 1; }
+            release_id=$(echo "$body" | jq -r '.id // empty')
+          fi
+          test -n "$release_id" || { echo "Unable to find or create Gitee release $TAG" >&2; exit 1; }
           echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
       - name: Upload APK to Gitee
         id: upload_apk
