@@ -100,4 +100,78 @@ class CourseCaptureParserTest {
         assertTrue(result.courses.isEmpty())
         assertTrue(result.diagnostics.isEmpty())
     }
+
+    @Test
+    fun parsesTdGridCellsWithNestedBlocksWhenThePageOmitsSectionText() {
+        val result = CourseCaptureParser.parse(
+            listOf(
+                CourseCaptureCell(
+                    resourceId = "td_2-9",
+                    text = "晚间课程块",
+                    childBlocks = listOf(
+                        CourseCaptureBlock(
+                            title = "嵌入式系统",
+                            room = "本部 京江2213",
+                            teacher = "甲老师",
+                            weeksText = "1-8周",
+                            rawText = "嵌入式系统 本部 京江2213 甲老师 1-8周",
+                        ),
+                        CourseCaptureBlock(
+                            title = "自动控制基础",
+                            room = "本部 三江0203",
+                            teacher = "乙老师",
+                            weeksText = "4-14周",
+                            rawText = "自动控制基础 本部 三江0203 乙老师 4-14周",
+                        ),
+                    ),
+                ),
+                CourseCaptureCell(
+                    resourceId = "td_4-10",
+                    text = "晚间单课",
+                    childBlocks = listOf(
+                        CourseCaptureBlock(
+                            title = "大学物理",
+                            room = "本部 三山503",
+                            teacher = "丙老师",
+                            weeksText = "1-14周",
+                            rawText = "大学物理 本部 三山503 丙老师 1-14周",
+                        ),
+                    ),
+                ),
+            ),
+            "个人课表 第5周",
+        )
+        assertEquals(3, result.courses.size)
+        assertEquals(listOf(9, 9, 10), result.courses.map { it.startSlot })
+        assertEquals(listOf(1, 4, 1), result.courses.map { it.weeks.first() })
+        assertEquals(listOf(2, 2, 4), result.courses.map { it.weekday })
+        assertEquals("自动控制基础", result.courses[1].title)
+        assertEquals("乙老师", result.courses[1].teacher)
+    }
+
+    @Test
+    fun parsesPlainSingleTd4_9BlockWithSlotFromResourceId() {
+        val result = CourseCaptureParser.parse(
+            listOf(
+                CourseCaptureCell(
+                    resourceId = "td_4-9",
+                    text = "大学物理A(II) 本部 三山503 尚老师 1-14周",
+                    childBlocks = listOf(
+                        CourseCaptureBlock(
+                            title = "大学物理A(II)",
+                            room = "本部 三山503",
+                            teacher = "尚老师",
+                            weeksText = "1-14周",
+                            rawText = "大学物理A(II) 本部 三山503 尚老师 1-14周",
+                        ),
+                    ),
+                ),
+            ),
+            "个人课表 第5周",
+        )
+        assertEquals(1, result.courses.size)
+        assertEquals(9, result.courses.single().startSlot)
+        assertEquals(4, result.courses.single().weekday)
+        assertEquals("大学物理A(II)", result.courses.single().title)
+    }
 }

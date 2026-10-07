@@ -11,6 +11,16 @@ data class CourseCaptureCell(
     /** Direct TextView children are the authoritative title list for cells
      * containing two or more courses (the page concatenates their metadata). */
     val childTexts: List<String> = emptyList(),
+    /** Flattened metadata blocks for the newer `td_D-S` grid. */
+    val childBlocks: List<CourseCaptureBlock> = emptyList(),
+)
+
+data class CourseCaptureBlock(
+    val title: String,
+    val room: String,
+    val teacher: String,
+    val weeksText: String,
+    val rawText: String,
 )
 
 data class CapturedCourse(
@@ -70,33 +80,52 @@ object CourseCaptureParser {
             if (normalized.isBlank()) return@forEach
             val dedupeKey = "${cell.resourceId}|$normalized"
             if (!seen.add(dedupeKey)) return@forEach
-            if (!normalized.contains("节") || !normalized.contains("周")) {
-                if (normalized.contains("节") || normalized.contains("周")) {
+            if (!normalized.contains("节") && cell.childBlocks.isEmpty()) {
+                if (normalized.contains("周")) {
                     diagnostics += "无法识别课程单元格：${cell.text}"
                 }
                 return@forEach
             }
 
             val segments = splitCourseSegments(normalized)
-            segments.forEachIndexed { segmentIndex, segment ->
+            val blockSegments = if (!normalized.contains(COURSE_MARKER) && cell.childBlocks.isNotEmpty()) {
+                cell.childBlocks.map { block ->
+                    // Keep the block's structured fields alongside its raw
+                    // text; the parser below uses these when no E023 marker
+                    // is exposed by the newer WebView.
+                    block.rawText
+                }
+            } else {
+                emptyList()
+            }
+            val parseSegments = if (blockSegments.isNotEmpty()) blockSegments else segments
+            parseSegments.forEachIndexed { segmentIndex, segment ->
+                val block = cell.childBlocks.getOrNull(segmentIndex)
                 val slot = slotPattern.find(segment)
-                val weeks = parseWeeks(segment)
-                if (slot == null || weeks.first.isEmpty()) {
+                val weeks = parseWeeks(
+                    block?.weeksText?.takeIf { it.isNotBlank() } ?: segment,
+                )
+                val (weekday, resourceSlot) = parseResourceId(cell.resourceId)
+                if ((slot == null && resourceSlot == null) || weeks.first.isEmpty()) {
                     diagnostics += "无法识别课程单元格：${cell.text}"
                     return@forEachIndexed
                 }
-                val start = slot.groupValues[1].ifBlank { slot.groupValues[3] }.toInt()
-                val end = slot.groupValues[2].ifBlank { slot.groupValues[3] }.toInt()
-                val titleEnd = slot.range.first
+                val start = slot?.let { match ->
+                    match.groupValues[1].ifBlank { match.groupValues[3] }.toIntOrNull()
+                } ?: resourceSlot
+                val end = slot?.let { match ->
+                    match.groupValues[2].ifBlank { match.groupValues[3] }.toIntOrNull()
+                } ?: resourceSlot
+                val titleEnd = slot?.range?.first ?: segment.length
                 val fallbackTitle = segment.substring(0, titleEnd)
-                val title = cell.childTexts.getOrNull(segmentIndex)
+                val title = block?.title?.takeIf { it.isNotBlank() }
+                    ?: cell.childTexts.getOrNull(segmentIndex)
                     ?.takeIf { it.isNotBlank() }
                     ?: fallbackTitle
                         .trim(' ', '\t', '-', '—', ':', '：', '(', '（', COURSE_MARKER)
                         .ifBlank { "未命名课程" }
-                val (weekday, resourceSlot) = parseResourceId(cell.resourceId)
-                val effectiveStart = start.takeIf { it > 0 } ?: resourceSlot
-                val effectiveEnd = end.takeIf { it > 0 } ?: resourceSlot
+                val effectiveStart = start
+                val effectiveEnd = end
                 val parity = weeks.second
                 val filteredWeeks = weeks.first.filter { week ->
                     parity == "all" || (parity == "odd" && week % 2 == 1) ||
@@ -115,9 +144,11 @@ object CourseCaptureParser {
                     sourceNodeId = cell.resourceId,
                     rawText = segment,
                     title = title,
-                    teacher = markerValue(segment, '\uE008', '\uE021')
+                    teacher = block?.teacher?.takeIf { it.isNotBlank() }
+                        ?: markerValue(segment, '\uE008', '\uE021')
                         .ifBlank { labelValue(teacherPattern, segment) },
-                    room = markerValue(segment, '\uE062', '\uE008')
+                    room = block?.room?.takeIf { it.isNotBlank() }
+                        ?: markerValue(segment, '\uE062', '\uE008')
                         .ifBlank { labelValue(roomPattern, segment) },
                     weekday = weekday,
                     startSlot = effectiveStart,
@@ -144,6 +175,36 @@ object CourseCaptureParser {
         val cells = mutableListOf<CourseCaptureCell>()
         val texts = mutableListOf<String>()
         val seen = mutableSetOf<String>()
+        fun leafTexts(node: AccessibilityNodeInfo): List<String> {
+            val own = node.text?.toString()?.trim().orEmpty()
+            if (node.childCount == 0) return own.takeIf { it.isNotBlank() }?.let(::listOf) ?: emptyList()
+            val descendants = (0 until node.childCount).flatMap { index ->
+                node.getChild(index)?.let(::leafTexts) ?: emptyList()
+            }
+            return if (descendants.isNotEmpty()) descendants
+            else own.takeIf { it.isNotBlank() }?.let(::listOf) ?: emptyList()
+        }
+
+        fun courseBlock(node: AccessibilityNodeInfo): CourseCaptureBlock? {
+            val leaves = leafTexts(node)
+            if (leaves.isEmpty()) return null
+            val title = leaves.first()
+            val weeks = leaves.firstOrNull { weekPattern.containsMatchIn(it) }.orEmpty()
+            val room = leaves.drop(1).firstOrNull {
+                it.contains("楼") || it.contains("教室") || it.contains("体育馆") || it.contains("场")
+            } ?: leaves.getOrNull(2).orEmpty()
+            val teacher = leaves.drop(1).firstOrNull {
+                it != room && !it.startsWith("(") && !it.contains("周")
+            } ?: leaves.getOrNull(3).orEmpty()
+            return CourseCaptureBlock(
+                title = title,
+                room = room,
+                teacher = teacher,
+                weeksText = weeks,
+                rawText = leaves.joinToString(" "),
+            )
+        }
+
         fun visit(node: AccessibilityNodeInfo?) {
             if (node == null) return
             val text = node.text?.toString()?.trim().orEmpty()
@@ -152,26 +213,33 @@ object CourseCaptureParser {
                 texts += text
                 val key = "$id|$text"
                 val hasCourseShape = text.contains("节") && text.contains("周")
-                val hasGridId = Regex("^(?:[^/]+/)?[1-7][-_]\\d{1,2}").containsMatchIn(id)
+                val hasGridId = Regex(
+                    "^(?:[^/]+/)?(?:td_)?[1-7][-_]\\d{1,2}(?:[^0-9].*)?$",
+                ).containsMatchIn(id)
                 // A WebView may expose both a grid cell and its parent as text.
                 // Prefer the identified grid cell; accept id-less text only when
                 // it looks like exactly one course rather than a whole table.
                 val looksLikeOneCourse = hasCourseShape &&
                     text.count { it == '节' } == 1 && text.count { it == '周' } >= 1
                 if (seen.add(key) && (hasGridId || looksLikeOneCourse)) {
-                    val childTexts = if (hasGridId) {
+                    val childBlocks = if (hasGridId) {
                         (0 until node.childCount).mapNotNull { index ->
-                            node.getChild(index)?.text?.toString()?.trim()
-                                ?.takeIf { it.isNotBlank() }
+                            node.getChild(index)?.let(::courseBlock)
                         }
                     } else {
                         emptyList()
                     }
-                    cells += CourseCaptureCell(id, text, childTexts)
+                    cells += CourseCaptureCell(
+                        resourceId = id,
+                        text = text,
+                        childTexts = childBlocks.map { it.title },
+                        childBlocks = childBlocks,
+                    )
                 }
             }
             for (i in 0 until node.childCount) visit(node.getChild(i))
         }
+
         visit(root)
         return texts.distinct().joinToString(" ") to cells
     }
@@ -211,7 +279,9 @@ object CourseCaptureParser {
     private fun parseResourceId(resourceId: String): Pair<Int?, Int?> {
         // Some WebView grids suffix duplicate cells (for example `3-1b`),
         // so accept a non-numeric suffix after the weekday/slot pair.
-        val match = Regex("^(?:[^/]+/)?([1-7])[-_](\\d{1,2})(?:[^0-9].*)?$").find(resourceId)
+        val match = Regex(
+            "^(?:[^/]+/)?(?:td_)?([1-7])[-_](\\d{1,2})(?:[^0-9].*)?$",
+        ).find(resourceId)
             ?: return null to null
         return match.groupValues[1].toInt() to match.groupValues[2].toInt()
     }

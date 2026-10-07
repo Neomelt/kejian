@@ -77,12 +77,12 @@ class _ImportPageState extends State<ImportPage> {
           item.startSlot == null ||
           item.endSlot == null ||
           item.weeks.isEmpty) {
-        diagnostics.add('无法定位课程“${item.title}”的星期、节次或周次');
+        diagnostics.add('已跳过课程“${item.title}”：没有可靠的星期、节次或周次，可手动添加');
         continue;
       }
       if (item.endSlot! < item.startSlot! ||
           item.endSlot! > term.slots.length) {
-        diagnostics.add('课程“${item.title}”的节次超出当前学期设置');
+        diagnostics.add('已跳过课程“${item.title}”：节次超出当前学期设置');
         continue;
       }
       courses.add(model.Course(
@@ -105,7 +105,8 @@ class _ImportPageState extends State<ImportPage> {
       diagnostics: [
         ImportDiagnostic(
             message: '来源：${result.pageTitle}，已在本机读取当前页面', isError: false),
-        ...diagnostics.map((message) => ImportDiagnostic(message: message)),
+        ...diagnostics.map(
+            (message) => ImportDiagnostic(message: message, isError: false)),
       ],
       skippedRows: result.courses.length - courses.length,
       sourceLabel: '企业微信 · ${result.pageTitle}',
