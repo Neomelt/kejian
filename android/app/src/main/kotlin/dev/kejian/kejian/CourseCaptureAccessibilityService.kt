@@ -8,11 +8,13 @@ import android.graphics.PixelFormat
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.provider.Settings
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.Toast
@@ -24,6 +26,10 @@ import android.widget.Toast
 class CourseCaptureAccessibilityService : AccessibilityService() {
     private var windowManager: WindowManager? = null
     private var overlay: View? = null
+    /** Keep the last target-app tree because tapping the overlay can briefly
+     * move the active window to this app before the capture callback runs. */
+    private var latestTargetRoot: AccessibilityNodeInfo? = null
+    private val captureHandler = Handler(Looper.getMainLooper())
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -44,6 +50,10 @@ class CourseCaptureAccessibilityService : AccessibilityService() {
         // If the user granted overlay permission after enabling the service,
         // the next target-app event is a safe point to install the button.
         if (event?.packageName?.toString() == TARGET_PACKAGE) {
+            rootInActiveWindow?.let { root ->
+                latestTargetRoot?.recycle()
+                latestTargetRoot = AccessibilityNodeInfo.obtain(root)
+            }
             if (overlay == null) showOverlayIfAllowed()
         } else {
             removeOverlay()
@@ -54,23 +64,63 @@ class CourseCaptureAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         removeOverlay()
+        latestTargetRoot?.recycle()
+        latestTargetRoot = null
         if (instance === this) instance = null
         super.onDestroy()
     }
 
     fun captureAndEmit(): Boolean {
-        val root = rootInActiveWindow ?: run {
+        // Let the current WebView finish publishing its accessibility tree;
+        // the overlay click itself can momentarily become the active window.
+        captureHandler.postDelayed({ captureNow() }, 350L)
+        return true
+    }
+
+    private fun captureNow(): Boolean {
+        val current = rootInActiveWindow?.let(AccessibilityNodeInfo::obtain)
+        val cached = latestTargetRoot?.let(AccessibilityNodeInfo::obtain)
+        var root = when {
+            current?.packageName?.toString() == TARGET_PACKAGE &&
+                cached?.packageName?.toString() == TARGET_PACKAGE -> current
+            current?.packageName?.toString() == TARGET_PACKAGE -> current
+            cached?.packageName?.toString() == TARGET_PACKAGE -> {
+                current?.recycle()
+                cached
+            }
+            else -> {
+                current?.recycle()
+                cached
+            }
+        } ?: run {
             notifyUser("未找到当前页面")
             return false
         }
+        if (current != null && cached != null &&
+            current.packageName?.toString() == TARGET_PACKAGE &&
+            cached.packageName?.toString() == TARGET_PACKAGE
+        ) {
+            val currentCells = CourseCaptureParser.snapshot(current).second.size
+            val cachedCells = CourseCaptureParser.snapshot(cached).second.size
+            if (currentCells >= cachedCells) {
+                cached.recycle()
+                root = current
+            } else {
+                current.recycle()
+                root = cached
+            }
+        }
         val packageName = root.packageName?.toString().orEmpty()
         if (packageName != TARGET_PACKAGE) {
+            root.recycle()
             notifyUser("请先打开企业微信中的个人课表")
             return false
         }
         val (pageText, cells) = CourseCaptureParser.snapshot(root)
+        Log.i(TAG, "capture package=$packageName pageText=${pageText.length} cells=${cells.size}")
         val title = findPageTitle(pageText)
         if (!isSchedulePage(pageText, cells)) {
+            root.recycle()
             notifyUser("当前页面不是个人课表")
             return false
         }
@@ -111,6 +161,7 @@ class CourseCaptureAccessibilityService : AccessibilityService() {
                 "capturedAt" to System.currentTimeMillis(),
             ),
         )
+        root.recycle()
         notifyUser("已读取 ${courseMaps.size} 门课程，请回到课间确认导入", long = true)
         return true
     }
@@ -202,6 +253,7 @@ class CourseCaptureAccessibilityService : AccessibilityService() {
 
     companion object {
         const val TARGET_PACKAGE = "com.tencent.wework"
+        private const val TAG = "KejianCapture"
         @Volatile private var instance: CourseCaptureAccessibilityService? = null
 
         fun current(): CourseCaptureAccessibilityService? = instance
