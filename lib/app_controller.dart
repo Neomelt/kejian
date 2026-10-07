@@ -54,7 +54,7 @@ class ScheduleController extends ChangeNotifier {
       _storageBlocked = false;
       _lastError = null;
       final term = loaded.activeTerm;
-      if (term != null) _focusedDate = term.startMonday;
+      if (term != null) _focusedDate = _weekStartForDate(term, _clock());
     } catch (error) {
       // Never replace an unreadable database with sample/blank data on disk.
       // Keep a usable in-memory blank view and expose the blocked state so UI
@@ -77,18 +77,22 @@ class ScheduleController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void shiftWeek(int amount) =>
+  void shiftWeek(int amount) {
+    final term = activeTerm;
+    if (term == null) {
       setFocusedDate(_focusedDate.add(Duration(days: amount * 7)));
+      return;
+    }
+    final current = currentWeek(term, _focusedDate);
+    final target = (current + amount).clamp(1, term.weekCount);
+    setFocusedDate(
+      term.startMonday.add(Duration(days: (target - 1) * 7)),
+    );
+  }
 
   void goToCurrentWeek() {
     final term = activeTerm;
-    setFocusedDate(
-      term == null
-          ? _clock()
-          : term.startMonday.add(
-              Duration(days: (currentWeek(term, _clock()) - 1) * 7),
-            ),
-    );
+    setFocusedDate(term == null ? _clock() : _weekStartForDate(term, _clock()));
   }
 
   Future<void> setData(ScheduleData value) => _mutate(() async {
@@ -487,10 +491,18 @@ class ScheduleController extends ChangeNotifier {
     _lastError = null;
     final term = value.activeTerm;
     if (term != null && oldActiveId != value.activeTermId) {
-      _focusedDate = term.startMonday;
+      _focusedDate = _weekStartForDate(term, _clock());
     }
     notifyListeners();
     unawaited(_refreshReminders());
+  }
+
+  /// Returns the Monday for the phone's current academic week.  Dates before
+  /// or after the term are clamped to the first/last teaching week so opening
+  /// the app never lands on an empty out-of-term grid.
+  DateTime _weekStartForDate(Term term, DateTime date) {
+    final week = currentWeek(term, date).clamp(1, term.weekCount);
+    return term.startMonday.add(Duration(days: (week - 1) * 7));
   }
 
   static int _reminderId(LessonOccurrence occurrence) {
@@ -526,5 +538,6 @@ class ScheduleController extends ChangeNotifier {
         endSlot: course.endSlot,
         weeks: course.weeks,
         color: course.color,
+        credits: course.credits,
       );
 }

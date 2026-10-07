@@ -148,6 +148,7 @@ class Course {
   final int endSlot;
   final List<int> weeks;
   final int color;
+  final double? credits;
 
   Course({
     required this.id,
@@ -160,6 +161,7 @@ class Course {
     required this.endSlot,
     required List<int> weeks,
     required this.color,
+    this.credits,
   }) : weeks = List.unmodifiable(List<int>.from(weeks)) {
     _requireText(id, 'id');
     _requireText(termId, 'termId');
@@ -178,6 +180,10 @@ class Course {
         'must be unique, sorted, positive week numbers',
       );
     }
+    if (credits != null && (!credits!.isFinite || credits! < 0)) {
+      throw ArgumentError.value(
+          credits, 'credits', 'must be finite and non-negative');
+    }
   }
 
   Map<String, dynamic> toJson() => {
@@ -191,6 +197,7 @@ class Course {
         'endSlot': endSlot,
         'weeks': weeks,
         'color': color,
+        if (credits != null) 'credits': credits,
       };
 
   @override
@@ -205,7 +212,8 @@ class Course {
       other.startSlot == startSlot &&
       other.endSlot == endSlot &&
       _listEquals(other.weeks, weeks) &&
-      other.color == color;
+      other.color == color &&
+      other.credits == credits;
 
   @override
   int get hashCode => Object.hash(
@@ -219,6 +227,7 @@ class Course {
         endSlot,
         Object.hashAll(weeks),
         color,
+        credits,
       );
 }
 
@@ -564,6 +573,8 @@ class ScheduleJson {
         endSlot: _int(m, 'endSlot'),
         weeks: _list(m, 'weeks', (item) => _asInt(item, 'week')),
         color: _int(m, 'color'),
+        credits:
+            m['credits'] == null ? null : _asDouble(m['credits'], 'credits'),
       );
     });
     final overrides = _list(map, 'overrides', (item) {
@@ -641,6 +652,15 @@ class ScheduleJson {
   static int _asInt(Object? value, String key) {
     if (value is! int) throw FormatException('$key must be an integer');
     return value;
+  }
+
+  static double _asDouble(Object? value, String key) {
+    if (value is num) return value.toDouble();
+    if (value is String) {
+      final parsed = double.tryParse(value.trim());
+      if (parsed != null) return parsed;
+    }
+    throw FormatException('$key must be a number');
   }
 
   static bool _bool(Map<String, dynamic> map, String key) {

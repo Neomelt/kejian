@@ -128,6 +128,7 @@ ImportResult _parseRows(
   final startAt = find({'startslot', 'startperiod', '开始节次', '起始节次'});
   final endAt = find({'endslot', 'endperiod', '结束节次'});
   final colorAt = find({'color', '颜色'});
+  final creditsAt = find({'credits', 'credit', '学分', '课程学分'});
 
   if (titleAt < 0 || weekdayAt < 0 || (slotAt < 0 && startAt < 0)) {
     diagnostics.add(
@@ -188,6 +189,8 @@ ImportResult _parseRows(
     final color = colorAt >= 0
         ? _parseColor(value(colorAt), title)
         : stableColorForImport(title);
+    final creditsText = creditsAt >= 0 ? value(creditsAt) : '';
+    final credits = creditsText.isEmpty ? null : double.tryParse(creditsText);
     final key = courseKeyForImport(
       term.id,
       title,
@@ -216,6 +219,7 @@ ImportResult _parseRows(
         endSlot: slotRange.$2,
         weeks: weeks,
         color: color,
+        credits: credits,
       ),
     );
   }

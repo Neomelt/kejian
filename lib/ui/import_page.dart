@@ -103,6 +103,7 @@ class _ImportPageState extends State<ImportPage> {
             item.weeks.where((week) => week <= term.weekCount).toSet().toList()
               ..sort(),
         color: _captureColor(item.title),
+        credits: item.credits,
       ));
     }
     final resultForPreview = ImportResult(

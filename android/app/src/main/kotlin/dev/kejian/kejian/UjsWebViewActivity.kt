@@ -111,6 +111,7 @@ class UjsWebViewActivity : Activity() {
                                 "parity" to course.parity,
                                 "duplicateGroupKey" to course.duplicateGroupKey,
                                 "inActiveWeek" to course.inActiveWeek,
+                                "credits" to course.credits,
                             )
                         },
                         "diagnostics" to parsed.diagnostics,

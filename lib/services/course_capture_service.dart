@@ -197,6 +197,7 @@ class CourseCaptureCandidate {
   final String parity;
   final String? duplicateGroupKey;
   final bool? inActiveWeek;
+  final double? credits;
 
   const CourseCaptureCandidate({
     required this.id,
@@ -212,6 +213,7 @@ class CourseCaptureCandidate {
     required this.parity,
     required this.duplicateGroupKey,
     required this.inActiveWeek,
+    required this.credits,
   });
 
   factory CourseCaptureCandidate.fromDynamic(Object? value) {
@@ -236,6 +238,9 @@ class CourseCaptureCandidate {
       duplicateGroupKey: map['duplicateGroupKey']?.toString(),
       inActiveWeek:
           map['inActiveWeek'] is bool ? map['inActiveWeek'] as bool : null,
+      credits: map['credits'] is num
+          ? (map['credits'] as num).toDouble()
+          : double.tryParse('${map['credits']}'),
     );
   }
 }

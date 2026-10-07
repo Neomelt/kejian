@@ -22,6 +22,7 @@ data class CourseCaptureBlock(
     val teacher: String,
     val weeksText: String,
     val rawText: String,
+    val credits: Double? = null,
 )
 
 data class CapturedCourse(
@@ -38,6 +39,7 @@ data class CapturedCourse(
     val parity: String,
     val duplicateGroupKey: String?,
     val inActiveWeek: Boolean?,
+    val credits: Double?,
 )
 
 data class CourseParseResult(
@@ -170,6 +172,7 @@ object CourseCaptureParser {
                     parity = parity,
                     duplicateGroupKey = groupKey,
                     inActiveWeek = inActiveWeek,
+                    credits = block?.credits ?: parseCredits(segment),
                 )
             }
         }
@@ -239,6 +242,7 @@ object CourseCaptureParser {
                 teacher = teacher,
                 weeksText = weeks,
                 rawText = leaves.joinToString(" "),
+                credits = parseCredits(leaves.joinToString(" ")),
             )
         }
 
@@ -352,6 +356,10 @@ object CourseCaptureParser {
         val end = text.indexOf(endMarker, valueStart).takeIf { it >= 0 } ?: text.length
         return text.substring(valueStart, end).trim()
     }
+
+    private fun parseCredits(text: String): Double? =
+        Regex("(?:^|\\s)(\\d+(?:\\.\\d+)?)\\s+(?:必修|选修|任选|限选)(?:\\s|$)")
+            .find(text)?.groupValues?.getOrNull(1)?.toDoubleOrNull()
 
     private fun plainMetadata(text: String): Pair<String, String> {
         val code = courseCodePattern.find(text) ?: return "" to ""

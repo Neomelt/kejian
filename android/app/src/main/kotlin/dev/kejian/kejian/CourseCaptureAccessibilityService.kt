@@ -142,6 +142,7 @@ class CourseCaptureAccessibilityService : AccessibilityService() {
                 "parity" to course.parity,
                 "duplicateGroupKey" to course.duplicateGroupKey,
                 "inActiveWeek" to course.inActiveWeek,
+                "credits" to course.credits,
             )
         }
         val cellMaps = cells.map {

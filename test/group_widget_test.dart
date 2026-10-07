@@ -52,6 +52,7 @@ model.Course _course(
   required String title,
   required List<int> weeks,
   int color = 0xFF336699,
+  double? credits,
 }) =>
     model.Course(
       id: id,
@@ -64,6 +65,7 @@ model.Course _course(
       endSlot: 2,
       weeks: weeks,
       color: color,
+      credits: credits,
     );
 
 model.ScheduleData _schedule(
@@ -98,24 +100,26 @@ void main() {
     final controller = await _controller(
       _schedule(term, [
         _course(term, id: 'active', title: '本周课程', weeks: const [1]),
-        _course(term, id: 'retake', title: '重修课程', weeks: const [2]),
+        _course(term, id: 'retake', title: '重修课程', weeks: const [1]),
       ]),
     );
     await tester.pumpWidget(_app(controller));
     await tester.pumpAndSettle();
 
-    expect(find.text('还有1门'), findsOneWidget);
-    await tester.tap(find.text('还有1门'));
+    expect(find.text('还有1门'), findsNothing);
+    expect(find.byIcon(Icons.layers_rounded), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.layers_rounded));
     await tester.pumpAndSettle();
 
     expect(find.text('同一时段的课程'), findsOneWidget);
     // The compact card remains in the route's subtree under the modal.
     expect(find.text('本周课程'), findsAtLeastNWidgets(2));
     expect(find.text('重修课程'), findsOneWidget);
-    expect(find.textContaining('非本周'), findsOneWidget);
+    expect(find.textContaining('非本周'), findsNothing);
   });
 
-  testWidgets('inactive course uses neutral surface color', (tester) async {
+  testWidgets('inactive course is hidden from the selected week',
+      (tester) async {
     final term = _term();
     final controller = await _controller(
       _schedule(term, [
@@ -125,9 +129,35 @@ void main() {
     await tester.pumpWidget(_app(controller));
     await tester.pumpAndSettle();
 
-    final title = tester.widget<Text>(find.text('隔周课程'));
-    final context = tester.element(find.text('隔周课程'));
-    expect(title.style?.color, Theme.of(context).colorScheme.onSurfaceVariant);
+    expect(find.text('隔周课程'), findsNothing);
+  });
+
+  testWidgets('course detail uses labeled fields and shows credits',
+      (tester) async {
+    final term = _term();
+    final controller = await _controller(
+      _schedule(term, [
+        _course(
+          term,
+          id: 'detail',
+          title: '课程详情',
+          weeks: const [1],
+          credits: 2,
+        ),
+      ]),
+    );
+    await tester.pumpWidget(_app(controller));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('课程详情'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('上课时间'), findsOneWidget);
+    expect(find.text('上课地点'), findsOneWidget);
+    expect(find.text('任课教师'), findsOneWidget);
+    expect(find.text('学分'), findsOneWidget);
+    expect(find.text('2'), findsNWidgets(2));
+    expect(find.text('周一  08:00–09:40'), findsOneWidget);
   });
 
   testWidgets('evening lessons render in the late timetable rows',

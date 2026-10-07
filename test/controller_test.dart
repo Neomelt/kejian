@@ -93,6 +93,25 @@ void main() {
     expect(controller.data.terms.map((item) => item.id), ['term', 'term2']);
   });
 
+  test('an active term opens on the phone current academic week', () async {
+    final controller = ScheduleController(
+      repository: _MemoryRepository(),
+      reminderService: _NoopReminders(),
+      clock: () => DateTime(2026, 3, 12, 8),
+    );
+    await controller.init();
+    await controller.saveTerm(term);
+
+    expect(controller.focusedDate, DateTime(2026, 3, 9));
+    controller.shiftWeek(-10);
+    expect(controller.focusedDate, term.startMonday);
+    controller.shiftWeek(100);
+    expect(
+      controller.focusedDate,
+      term.startMonday.add(const Duration(days: 15 * 7)),
+    );
+  });
+
   test('deleting a course removes its orphan lesson overrides', () async {
     final repository = _MemoryRepository();
     final controller = ScheduleController(
