@@ -41,7 +41,9 @@ class CourseCaptureAccessibilityService : AccessibilityService() {
             feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
             notificationTimeout = 100
             flags = flags or AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
-                AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+                AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
+                AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS or
+                AccessibilityServiceInfo.FLAG_REQUEST_ENHANCED_WEB_ACCESSIBILITY
         }
     }
 
@@ -93,6 +95,7 @@ class CourseCaptureAccessibilityService : AccessibilityService() {
             window.root?.let { root -> nodes += AccessibilityNodeInfo.obtain(root) }
         }
         val candidates = nodes.map { node ->
+            node.refresh()
             val packageName = node.packageName?.toString().orEmpty()
             val (pageText, cells) = CourseCaptureParser.snapshot(node)
             RootCandidate(node, packageName, pageText, cells)
