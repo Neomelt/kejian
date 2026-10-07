@@ -32,11 +32,12 @@ class _SchedulePageState extends State<SchedulePage> {
     final monday = mondayOf(widget.controller.focusedDate);
     final week = currentWeek(term, monday);
     return GestureDetector(
-      behavior: HitTestBehavior.translucent,
+      behavior: HitTestBehavior.opaque,
       onHorizontalDragEnd: (details) {
         final velocity = details.primaryVelocity ?? 0;
-        if (velocity.abs() < 300) return;
-        widget.controller.shiftWeek(velocity < 0 ? 1 : -1);
+        if (velocity.abs() >= 300) {
+          widget.controller.shiftWeek(velocity < 0 ? 1 : -1);
+        }
       },
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
@@ -282,7 +283,7 @@ class _TodayBanner extends StatelessWidget {
                           ? '没有课程，留一点时间给自己'
                           : next == null
                               ? '今天有 ${lessons.length} 节课'
-                              : '下一节：${next.course.title} · 第 ${next.startSlot} 节',
+                              : '下一节：${displayCourseTitle(next.course.title)} · 第 ${next.startSlot} 节',
                       style: Theme.of(context).textTheme.bodySmall)
                 ])),
             if (currentWeek(term, today) >= 1 &&
@@ -318,6 +319,9 @@ class WeekGrid extends StatelessWidget {
     final slots = term.slots;
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
+      physics: contentWidth > width
+          ? const ClampingScrollPhysics()
+          : const NeverScrollableScrollPhysics(),
       child: SizedBox(
         width: contentWidth,
         child: Column(
@@ -510,7 +514,7 @@ class _LessonCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(lesson.course.title,
+                    Text(displayCourseTitle(lesson.course.title),
                         maxLines: 3,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
@@ -546,6 +550,19 @@ class _LessonCard extends StatelessWidget {
       ),
     );
   }
+}
+
+String displayCourseTitle(String title) {
+  final slot =
+      RegExp(r'\s*\(\d{1,2}\s*[-~至到]\s*\d{1,2}\s*节\)').firstMatch(title);
+  if (slot != null && slot.start > 0) {
+    return title.substring(0, slot.start).trim();
+  }
+  final code = RegExp(r'\s*\(\d{4}-\d{4}-\d\)-[A-Za-z0-9-]+').firstMatch(title);
+  if (code != null && code.start > 0) {
+    return title.substring(0, code.start).trim();
+  }
+  return title;
 }
 
 Color _lessonColor(BuildContext context, DisplayOccurrence lesson) {
@@ -696,7 +713,8 @@ class _DayLessonTile extends StatelessWidget {
                           children: [
                         Row(children: [
                           Expanded(
-                              child: Text(lesson.course.title,
+                              child: Text(
+                                  displayCourseTitle(lesson.course.title),
                                   style: const TextStyle(
                                       fontWeight: FontWeight.w700))),
                           if (group.hasOverlap)
@@ -798,7 +816,7 @@ Future<void> showOccurrenceGroup(
                               borderRadius: BorderRadius.circular(4),
                             ),
                           ),
-                          title: Text(lesson.course.title,
+                          title: Text(displayCourseTitle(lesson.course.title),
                               style:
                                   const TextStyle(fontWeight: FontWeight.w700)),
                           subtitle: Text(
@@ -844,7 +862,7 @@ Future<void> showCourseDetail(
             children: [
               Row(children: [
                 Expanded(
-                    child: Text(event.course.title,
+                    child: Text(displayCourseTitle(event.course.title),
                         style: Theme.of(sheetContext)
                             .textTheme
                             .headlineSmall

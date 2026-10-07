@@ -186,4 +186,23 @@ void main() {
     expect(find.text('9'), findsOneWidget);
     expect(find.text('11'), findsOneWidget);
   });
+
+  testWidgets('horizontal swipe moves to the adjacent teaching week',
+      (tester) async {
+    final term = _term();
+    final controller = await _controller(
+      _schedule(term, [
+        _course(term, id: 'week-two', title: '第二周课程', weeks: const [2]),
+      ]),
+    );
+    await tester.pumpWidget(_app(controller));
+    await tester.pumpAndSettle();
+
+    expect(find.text('本周学期  ·  第 1 周'), findsOneWidget);
+    await tester.fling(find.text('点击选择周次'), const Offset(-220, 0), 1000);
+    expect(currentWeek(term, controller.focusedDate), 2);
+    await tester.pumpWidget(_app(controller));
+    await tester.pumpAndSettle();
+    expect(find.text('本周学期  ·  第 2 周'), findsOneWidget);
+  });
 }
