@@ -18,8 +18,8 @@ KEJIAN_UPDATE_MANIFEST_URL=https://gitee.com/<owner>/<repo>/raw/<branch>/update.
 
 GitHub 仓库需要配置以下 Repository variables：
 
-- `GITEE_OWNER`：Gitee 用户或组织地址；
-- `GITEE_REPO`：Gitee 仓库路径。
+- `GITEE_OWNER`：Gitee 用户或组织地址，可选；当前默认为 `Xlqmu`；
+- `GITEE_REPO`：Gitee 仓库路径，可选；当前默认为 `kejian-mirror`。
 - `GITEE_BRANCH`：Gitee 镜像分支，可选，默认 `master`。
 
 需要配置以下 Repository secrets：

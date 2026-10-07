@@ -12,8 +12,8 @@ jobs:
   release:
     runs-on: ubuntu-latest
     env:
-      GITEE_OWNER: ${{ vars.GITEE_OWNER }}
-      GITEE_REPO: ${{ vars.GITEE_REPO }}
+      GITEE_OWNER: ${{ vars.GITEE_OWNER || 'Xlqmu' }}
+      GITEE_REPO: ${{ vars.GITEE_REPO || 'kejian-mirror' }}
       GITEE_BRANCH: ${{ vars.GITEE_BRANCH || 'master' }}
       GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
       UPDATE_MANIFEST_URL: https://gitee.com/${{ vars.GITEE_OWNER }}/${{ vars.GITEE_REPO }}/raw/${{ vars.GITEE_BRANCH || 'master' }}/update.json
