@@ -114,12 +114,19 @@ jobs:
           current=$(curl --silent --show-error \
             "https://gitee.com/api/v5/repos/$GITEE_OWNER/$GITEE_REPO/contents/update.json?access_token=$GITEE_TOKEN")
           sha=$(echo "$current" | jq -r 'if type == "array" then (.[0].sha // empty) else (.sha // empty) end')
-          args=(
-            -X PUT "https://gitee.com/api/v5/repos/$GITEE_OWNER/$GITEE_REPO/contents/update.json"
-            -F "access_token=$GITEE_TOKEN"
-            -F "content=$content"
-            -F "message=chore: update Android manifest"
-            -F "branch=$GITEE_BRANCH"
-          )
-          test -z "$sha" || args+=( -F "sha=$sha" )
-          curl --fail-with-body --silent --show-error "${args[@]}"
+          if test -n "$sha"; then
+            curl --fail-with-body --silent --show-error \
+              -X PUT "https://gitee.com/api/v5/repos/$GITEE_OWNER/$GITEE_REPO/contents/update.json" \
+              -F "access_token=$GITEE_TOKEN" \
+              -F "content=$content" \
+              -F "message=chore: update Android manifest" \
+              -F "branch=$GITEE_BRANCH" \
+              -F "sha=$sha"
+          else
+            curl --fail-with-body --silent --show-error \
+              -X POST "https://gitee.com/api/v5/repos/$GITEE_OWNER/$GITEE_REPO/contents/update.json" \
+              -F "access_token=$GITEE_TOKEN" \
+              -F "content=$content" \
+              -F "message=chore: update Android manifest" \
+              -F "branch=$GITEE_BRANCH"
+          fi
