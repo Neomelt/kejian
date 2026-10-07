@@ -173,6 +173,8 @@ class CourseCaptureParserTest {
         assertEquals(9, result.courses.single().startSlot)
         assertEquals(4, result.courses.single().weekday)
         assertEquals("大学物理A(II)", result.courses.single().title)
+        assertEquals("本部 三山503", result.courses.single().room)
+        assertEquals("尚老师", result.courses.single().teacher)
     }
 
     @Test

@@ -157,10 +157,12 @@ object CourseCaptureParser {
                     title = title,
                     teacher = block?.teacher?.takeIf { it.isNotBlank() }
                         ?: markerValue(segment, '\uE008', '\uE021')
-                        .ifBlank { labelValue(teacherPattern, segment) },
+                        .ifBlank { labelValue(teacherPattern, segment) }
+                        .ifBlank { plainMetadata(segment).second },
                     room = block?.room?.takeIf { it.isNotBlank() }
                         ?: markerValue(segment, '\uE062', '\uE008')
-                        .ifBlank { labelValue(roomPattern, segment) },
+                        .ifBlank { labelValue(roomPattern, segment) }
+                        .ifBlank { plainMetadata(segment).first },
                     weekday = weekday,
                     startSlot = effectiveStart,
                     endSlot = effectiveEnd,
@@ -349,6 +351,15 @@ object CourseCaptureParser {
         val valueStart = start + 1
         val end = text.indexOf(endMarker, valueStart).takeIf { it >= 0 } ?: text.length
         return text.substring(valueStart, end).trim()
+    }
+
+    private fun plainMetadata(text: String): Pair<String, String> {
+        val code = courseCodePattern.find(text) ?: return "" to ""
+        val week = weekPattern.find(text) ?: return "" to ""
+        if (week.range.first <= code.range.last) return "" to ""
+        val middle = text.substring(code.range.last + 1, week.range.first).trim()
+        val split = Regex("^(.*)\\s+([^\\s]+)$").find(middle) ?: return middle to ""
+        return split.groupValues[1].trim() to split.groupValues[2].trim()
     }
 
     private val courseCodePattern = Regex("\\(\\d{4}-\\d{4}-\\d\\)-[A-Za-z0-9-]+")
