@@ -40,7 +40,8 @@ class CourseCaptureAccessibilityService : AccessibilityService() {
                 AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED
             feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
             notificationTimeout = 100
-            flags = flags or AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
+            flags = flags or AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
+                AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
         }
     }
 
@@ -78,45 +79,36 @@ class CourseCaptureAccessibilityService : AccessibilityService() {
     }
 
     private fun captureNow(): Boolean {
-        val current = rootInActiveWindow?.let(AccessibilityNodeInfo::obtain)
-        val cached = latestTargetRoot?.let(AccessibilityNodeInfo::obtain)
-        var root = when {
-            current?.packageName?.toString() == TARGET_PACKAGE &&
-                cached?.packageName?.toString() == TARGET_PACKAGE -> current
-            current?.packageName?.toString() == TARGET_PACKAGE -> current
-            cached?.packageName?.toString() == TARGET_PACKAGE -> {
-                current?.recycle()
-                cached
-            }
-            else -> {
-                current?.recycle()
-                cached
-            }
+        data class RootCandidate(
+            val node: AccessibilityNodeInfo,
+            val packageName: String,
+            val pageText: String,
+            val cells: List<CourseCaptureCell>,
+        )
+
+        val nodes = mutableListOf<AccessibilityNodeInfo>()
+        rootInActiveWindow?.let { nodes += AccessibilityNodeInfo.obtain(it) }
+        latestTargetRoot?.let { nodes += AccessibilityNodeInfo.obtain(it) }
+        windows.orEmpty().forEach { window ->
+            window.root?.let { root -> nodes += AccessibilityNodeInfo.obtain(root) }
+        }
+        val candidates = nodes.map { node ->
+            val packageName = node.packageName?.toString().orEmpty()
+            val (pageText, cells) = CourseCaptureParser.snapshot(node)
+            RootCandidate(node, packageName, pageText, cells)
+        }.filter { it.packageName == TARGET_PACKAGE }
+        val selected = candidates.maxByOrNull {
+            it.cells.size * 100000 + it.pageText.length
         } ?: run {
+            nodes.forEach { it.recycle() }
             notifyUser("未找到当前页面")
             return false
         }
-        if (current != null && cached != null &&
-            current.packageName?.toString() == TARGET_PACKAGE &&
-            cached.packageName?.toString() == TARGET_PACKAGE
-        ) {
-            val currentCells = CourseCaptureParser.snapshot(current).second.size
-            val cachedCells = CourseCaptureParser.snapshot(cached).second.size
-            if (currentCells >= cachedCells) {
-                cached.recycle()
-                root = current
-            } else {
-                current.recycle()
-                root = cached
-            }
-        }
-        val packageName = root.packageName?.toString().orEmpty()
-        if (packageName != TARGET_PACKAGE) {
-            root.recycle()
-            notifyUser("请先打开企业微信中的个人课表")
-            return false
-        }
-        val (pageText, cells) = CourseCaptureParser.snapshot(root)
+        nodes.filter { it !== selected.node }.forEach { it.recycle() }
+        val root = selected.node
+        val packageName = selected.packageName
+        val pageText = selected.pageText
+        val cells = selected.cells
         Log.i(TAG, "capture package=$packageName pageText=${pageText.length} cells=${cells.size}")
         val title = findPageTitle(pageText)
         if (!isSchedulePage(pageText, cells)) {
