@@ -1,0 +1,99 @@
+name: Build mobile artifacts
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.47.6'
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+
+  android:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.47.6'
+          cache: true
+      - run: flutter pub get
+      - run: flutter build apk --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kejian-android-test-signed-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+
+  android-release:
+    name: Signed Android release (tag only)
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: test
+    runs-on: ubuntu-latest
+    env:
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      ANDROID_KEYSTORE_FILE: ${{ runner.temp }}/kejian-release.keystore
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require release signing secrets
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          test -n "$KEYSTORE_B64" || { echo 'ANDROID_KEYSTORE_BASE64 is required for tag releases' >&2; exit 1; }
+          test -n "$ANDROID_KEYSTORE_PASSWORD" || { echo 'ANDROID_KEYSTORE_PASSWORD is required' >&2; exit 1; }
+          test -n "$ANDROID_KEY_ALIAS" || { echo 'ANDROID_KEY_ALIAS is required' >&2; exit 1; }
+          test -n "$ANDROID_KEY_PASSWORD" || { echo 'ANDROID_KEY_PASSWORD is required' >&2; exit 1; }
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$ANDROID_KEYSTORE_FILE"
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.47.6'
+          cache: true
+      - run: flutter pub get
+      - run: flutter build apk --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kejian-android-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+
+  ios-unsigned:
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.47.6'
+          cache: true
+      - run: flutter pub get
+      - run: flutter build ios --release --no-codesign
+      - name: Package unsigned IPA
+        shell: bash
+        run: |
+          rm -rf Payload KeJian.ipa
+          mkdir Payload
+          cp -R build/ios/iphoneos/Runner.app Payload/KeJian.app
+          zip -qry KeJian.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kejian-ios-unsigned-ipa
+          path: KeJian.ipa

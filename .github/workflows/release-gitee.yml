@@ -1,0 +1,117 @@
+name: Release Android to Gitee
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GITEE_OWNER: ${{ vars.GITEE_OWNER }}
+      GITEE_REPO: ${{ vars.GITEE_REPO }}
+      GITEE_BRANCH: ${{ vars.GITEE_BRANCH || 'master' }}
+      GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+      UPDATE_MANIFEST_URL: https://gitee.com/${{ vars.GITEE_OWNER }}/${{ vars.GITEE_REPO }}/raw/${{ vars.GITEE_BRANCH || 'master' }}/update.json
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Gitee configuration
+        run: |
+          test -n "$GITEE_OWNER" || { echo 'Repository variable GITEE_OWNER is required' >&2; exit 1; }
+          test -n "$GITEE_REPO" || { echo 'Repository variable GITEE_REPO is required' >&2; exit 1; }
+          test -n "$GITEE_TOKEN" || { echo 'Secret GITEE_TOKEN is required' >&2; exit 1; }
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.47.6'
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test --concurrency=1
+      - name: Build signed APK
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          test -n "$ANDROID_KEYSTORE_B64" || { echo 'Android signing secrets are required' >&2; exit 1; }
+          KEYSTORE_FILE="$RUNNER_TEMP/kejian-release.keystore"
+          printf '%s' "$ANDROID_KEYSTORE_B64" | base64 --decode > "$KEYSTORE_FILE"
+          export ANDROID_KEYSTORE_FILE="$KEYSTORE_FILE"
+          flutter build apk --release \
+            --build-name="${GITHUB_REF_NAME#v}" \
+            --build-number="$GITHUB_RUN_NUMBER" \
+            --dart-define="KEJIAN_UPDATE_MANIFEST_URL=$UPDATE_MANIFEST_URL"
+        # The signing values are supplied only through the runner environment.
+      - name: Generate release metadata
+        id: metadata
+        run: |
+          APK=build/app/outputs/flutter-apk/app-release.apk
+          SHA256=$(sha256sum "$APK" | cut -d' ' -f1)
+          SIZE=$(stat -c '%s' "$APK")
+          VERSION_NAME="${GITHUB_REF_NAME#v}"
+          cat > update.json <<EOF
+          {
+            "appId": "dev.kejian.kejian",
+            "versionCode": ${GITHUB_RUN_NUMBER},
+            "versionName": "${VERSION_NAME}",
+            "apkUrl": "PENDING_GITEE_ASSET_URL",
+            "sha256": "${SHA256}",
+            "sizeBytes": ${SIZE},
+            "notes": "${VERSION_NAME}"
+          }
+          EOF
+          echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
+      - name: Create Gitee release
+        id: gitee_release
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          response=$(curl --fail-with-body --silent --show-error \
+            -X POST "https://gitee.com/api/v5/repos/$GITEE_OWNER/$GITEE_REPO/releases" \
+            -F "access_token=$GITEE_TOKEN" \
+            -F "tag_name=$TAG" \
+            -F "name=$TAG" \
+            -F "body=Android release $TAG")
+          echo "$response" > gitee-release.json
+          release_id=$(jq -r '.id // empty' gitee-release.json)
+          test -n "$release_id" || { cat gitee-release.json; exit 1; }
+          echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
+      - name: Upload APK to Gitee
+        id: upload_apk
+        run: |
+          response=$(curl --fail-with-body --silent --show-error \
+            -X POST "https://gitee.com/api/v5/repos/$GITEE_OWNER/$GITEE_REPO/releases/${{ steps.gitee_release.outputs.release_id }}/attach_files" \
+            -F "access_token=$GITEE_TOKEN" \
+            -F "file=@build/app/outputs/flutter-apk/app-release.apk")
+          echo "$response" > gitee-apk.json
+          url=$(jq -r '.browser_download_url // .download_url // empty' gitee-apk.json)
+          test -n "$url" || { cat gitee-apk.json; exit 1; }
+          sed -i "s#PENDING_GITEE_ASSET_URL#$url#" update.json
+          echo "apk_url=$url" >> "$GITHUB_OUTPUT"
+      - name: Upload update manifest to Gitee release
+        run: |
+          curl --fail-with-body --silent --show-error \
+            -X POST "https://gitee.com/api/v5/repos/$GITEE_OWNER/$GITEE_REPO/releases/${{ steps.gitee_release.outputs.release_id }}/attach_files" \
+            -F "access_token=$GITEE_TOKEN" \
+            -F "file=@update.json"
+      - name: Update stable manifest in Gitee repository
+        run: |
+          content=$(base64 -w0 update.json)
+          current=$(curl --silent --show-error \
+            "https://gitee.com/api/v5/repos/$GITEE_OWNER/$GITEE_REPO/contents/update.json?access_token=$GITEE_TOKEN")
+          sha=$(echo "$current" | jq -r '.[0].sha // .sha // empty')
+          args=(
+            -X PUT "https://gitee.com/api/v5/repos/$GITEE_OWNER/$GITEE_REPO/contents/update.json"
+            -F "access_token=$GITEE_TOKEN"
+            -F "content=$content"
+            -F "message=chore: update Android manifest"
+            -F "branch=$GITEE_BRANCH"
+          )
+          test -z "$sha" || args+=( -F "sha=$sha" )
+          curl --fail-with-body --silent --show-error "${args[@]}"

@@ -1,0 +1,3 @@
+<resources>
+    <string name="course_capture_accessibility_description">读取企业微信个人课表，仅在点击读取按钮时采集当前页面</string>
+</resources>
