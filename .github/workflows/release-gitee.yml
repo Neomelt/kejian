@@ -74,13 +74,17 @@ jobs:
         env:
           TAG: ${{ github.ref_name }}
         run: |
-          response=$(curl --fail-with-body --silent --show-error \
+          response=$(curl --silent --show-error -w '\n%{http_code}' \
             -X POST "https://gitee.com/api/v5/repos/$GITEE_OWNER/$GITEE_REPO/releases" \
             -F "access_token=$GITEE_TOKEN" \
             -F "tag_name=$TAG" \
             -F "name=$TAG" \
-            -F "body=Android release $TAG")
-          echo "$response" > gitee-release.json
+            -F "body=Android release $TAG" \
+            -F "target_commitish=$GITEE_BRANCH")
+          status="${response##*$'\n'}"
+          body="${response%$'\n'*}"
+          test "$status" -ge 200 -a "$status" -lt 300 || { echo "$body"; exit 1; }
+          echo "$body" > gitee-release.json
           release_id=$(jq -r '.id // empty' gitee-release.json)
           test -n "$release_id" || { cat gitee-release.json; exit 1; }
           echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
