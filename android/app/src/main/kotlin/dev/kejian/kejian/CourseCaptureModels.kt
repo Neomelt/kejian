@@ -1,6 +1,7 @@
 package dev.kejian.kejian
 
 import android.view.accessibility.AccessibilityNodeInfo
+import android.graphics.Rect
 import java.security.MessageDigest
 import java.util.Locale
 
@@ -185,6 +186,30 @@ object CourseCaptureParser {
         val cells = mutableListOf<CourseCaptureCell>()
         val texts = mutableListOf<String>()
         val seen = mutableSetOf<String>()
+        val weekdayCenters = mutableMapOf<Int, Int>()
+        val slotTops = mutableMapOf<Int, Int>()
+
+        fun collectGeometry(node: AccessibilityNodeInfo?) {
+            if (node == null) return
+            val text = node.text?.toString()?.trim().orEmpty()
+            val bounds = Rect().also(node::getBoundsInScreen)
+            Regex("周([一二三四五六日天])").find(text)?.groupValues?.getOrNull(1)?.firstOrNull()?.let {
+                val weekday = "一二三四五六日天".indexOf(it).let { index -> if (index >= 7) 7 else index + 1 }
+                weekdayCenters[weekday] = bounds.centerX()
+            }
+            Regex("^(\\d{1,2})\\s+\\d{2}:\\d{2}:\\d{2}").find(text)
+                ?.groupValues?.getOrNull(1)?.toIntOrNull()?.let { slotTops[it] = bounds.top }
+            for (index in 0 until node.childCount) collectGeometry(node.getChild(index))
+        }
+        collectGeometry(root)
+
+        fun geometryId(node: AccessibilityNodeInfo): String {
+            if (weekdayCenters.isEmpty() || slotTops.isEmpty()) return ""
+            val bounds = Rect().also(node::getBoundsInScreen)
+            val weekday = weekdayCenters.minByOrNull { (_, center) -> kotlin.math.abs(center - bounds.centerX()) }?.key
+            val slot = slotTops.filterValues { it <= bounds.top }.maxByOrNull { it.value }?.key
+            return if (weekday != null && slot != null) "$weekday-$slot" else ""
+        }
         fun leafTexts(node: AccessibilityNodeInfo): List<String> {
             val own = node.text?.toString()?.trim().orEmpty()
             if (node.childCount == 0) return own.takeIf { it.isNotBlank() }?.let(::listOf) ?: emptyList()
@@ -218,19 +243,20 @@ object CourseCaptureParser {
         fun visit(node: AccessibilityNodeInfo?) {
             if (node == null) return
             val text = node.text?.toString()?.trim().orEmpty()
-            val id = node.viewIdResourceName?.substringAfterLast(":id/").orEmpty()
+            val rawId = node.viewIdResourceName?.substringAfterLast(":id/").orEmpty()
             if (text.isNotBlank()) {
                 texts += text
-                val key = "$id|$text"
-                val hasCourseShape = text.contains("节") && text.contains("周")
                 val hasGridId = Regex(
                     "^(?:[^/]+/)?(?:td_)?[1-7][-_]\\d{1,2}(?:[^0-9].*)?$",
-                ).containsMatchIn(id)
+                ).containsMatchIn(rawId)
+                val hasCourseShape = text.contains("节") && text.contains("周")
                 // A WebView may expose both a grid cell and its parent as text.
                 // Prefer the identified grid cell; accept id-less text only when
                 // it looks like exactly one course rather than a whole table.
                 val looksLikeOneCourse = hasCourseShape &&
                     text.count { it == '节' } == 1 && text.count { it == '周' } >= 1
+                val id = if (hasGridId) rawId else if (looksLikeOneCourse) geometryId(node) else ""
+                val key = "$id|$text"
                 if (seen.add(key) && (hasGridId || looksLikeOneCourse)) {
                     val childBlocks = if (hasGridId) {
                         (0 until node.childCount).mapNotNull { index ->

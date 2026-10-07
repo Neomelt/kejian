@@ -97,6 +97,10 @@ class MainActivity : FlutterActivity() {
                             result.success(true)
                         }
                     }
+                    "openUjsAdapter" -> {
+                        startActivity(Intent(this, UjsWebViewActivity::class.java))
+                        result.success(true)
+                    }
                     else -> result.notImplemented()
                 }
             }

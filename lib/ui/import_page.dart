@@ -50,6 +50,11 @@ class _ImportPageState extends State<ImportPage> {
     if (mounted) _notice('请在企业微信打开“个人课表”，再点击悬浮按钮读取');
   }
 
+  Future<void> _openUjsAdapter() async {
+    final ok = await capture.openUjsAdapter();
+    if (mounted && !ok) _notice('当前平台不支持教务系统适配器');
+  }
+
   Future<void> _captureNow() async {
     final ok = await capture.capture();
     if (!ok && mounted) {
@@ -109,7 +114,8 @@ class _ImportPageState extends State<ImportPage> {
             (message) => ImportDiagnostic(message: message, isError: false)),
       ],
       skippedRows: result.courses.length - courses.length,
-      sourceLabel: '企业微信 · ${result.pageTitle}',
+      sourceLabel:
+          '${result.sourcePackage == 'com.tencent.wework' ? '企业微信' : '正方教务系统'} · ${result.pageTitle}',
     );
     await _showImportPreview(resultForPreview);
   }
@@ -250,6 +256,7 @@ class _ImportPageState extends State<ImportPage> {
           onOpenAccessibility: _openCaptureSettings,
           onOpenOverlay: _openOverlaySettings,
           onOpenWeCom: _openWeCom,
+          onOpenUjsAdapter: _openUjsAdapter,
           onCapture: _captureNow,
         ),
         const SizedBox(height: 22),
@@ -363,6 +370,7 @@ class _CaptureCard extends StatelessWidget {
     required this.onOpenAccessibility,
     required this.onOpenOverlay,
     required this.onOpenWeCom,
+    required this.onOpenUjsAdapter,
     required this.onCapture,
   });
 
@@ -372,6 +380,7 @@ class _CaptureCard extends StatelessWidget {
   final VoidCallback onOpenAccessibility;
   final VoidCallback onOpenOverlay;
   final VoidCallback onOpenWeCom;
+  final VoidCallback onOpenUjsAdapter;
   final VoidCallback onCapture;
 
   @override
@@ -450,6 +459,9 @@ class _CaptureCard extends StatelessWidget {
                       onPressed: onOpenOverlay, child: const Text('开启悬浮窗')),
                 OutlinedButton(
                     onPressed: onOpenWeCom, child: const Text('打开企业微信')),
+                OutlinedButton(
+                    onPressed: onOpenUjsAdapter,
+                    child: const Text('在课间打开教务系统')),
                 FilledButton.tonal(
                     onPressed: status.ready ? onCapture : null,
                     child: const Text('读取当前课表')),
@@ -468,7 +480,8 @@ class ImportPreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final isCapture = result.sourceLabel.startsWith('企业微信 ·');
+    final isCapture = result.sourceLabel.startsWith('企业微信 ·') ||
+        result.sourceLabel.startsWith('正方教务系统 ·');
     final errors = result.diagnostics.where((item) => item.isError).toList();
     final notices = result.diagnostics.where((item) => !item.isError).toList();
     Widget diagnosticBox(List<ImportDiagnostic> items, {required bool error}) =>

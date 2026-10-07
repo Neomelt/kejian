@@ -113,6 +113,7 @@ class CourseCaptureAccessibilityService : AccessibilityService() {
         val pageText = selected.pageText
         val cells = selected.cells
         Log.i(TAG, "capture package=$packageName pageText=${pageText.length} cells=${cells.size}")
+        Log.i(TAG, "capture head=${pageText.take(400)}")
         val title = findPageTitle(pageText)
         if (!isSchedulePage(pageText, cells)) {
             root.recycle()
@@ -120,6 +121,12 @@ class CourseCaptureAccessibilityService : AccessibilityService() {
             return false
         }
         val parsed = CourseCaptureParser.parse(cells, pageText)
+        Log.i(
+            TAG,
+            "cells=${cells.size} ids=${cells.take(5).joinToString { it.resourceId }} " +
+                "parsed=${parsed.courses.size} candidates=" +
+                parsed.courses.take(5).joinToString { "${it.title}:${it.weekday}/${it.startSlot}/${it.weeks.size}" },
+        )
         val courseMaps = parsed.courses.map { course ->
             mapOf<String, Any?>(
                 "id" to course.id,

@@ -32,11 +32,16 @@ class CourseCaptureService {
     }
   }
 
-  Future<bool> openAccessibilitySettings() => _boolCall('openAccessibilitySettings');
+  Future<bool> openAccessibilitySettings() =>
+      _boolCall('openAccessibilitySettings');
 
   Future<bool> openOverlaySettings() => _boolCall('openOverlaySettings');
 
   Future<bool> openTargetApp() => _boolCall('openTargetApp');
+
+  /// Opens the Jiangsu University adapter WebView. Login stays inside the
+  /// system WebView and the page is parsed locally before returning here.
+  Future<bool> openUjsAdapter() => _boolCall('openUjsAdapter');
 
   /// Requests one capture from the currently active accessibility window.
   Future<bool> capture() => _boolCall('capture');
@@ -133,9 +138,7 @@ class CourseCaptureResult {
       pageTitle: map['pageTitle']?.toString() ?? '',
       rawText: map['rawText']?.toString() ?? '',
       cells: rawCells is List
-          ? rawCells
-              .map(CourseCaptureCell.fromDynamic)
-              .toList(growable: false)
+          ? rawCells.map(CourseCaptureCell.fromDynamic).toList(growable: false)
           : const [],
       courses: rawCourses is List
           ? rawCourses
@@ -231,7 +234,8 @@ class CourseCaptureCandidate {
           : const [],
       parity: map['parity']?.toString() ?? 'all',
       duplicateGroupKey: map['duplicateGroupKey']?.toString(),
-      inActiveWeek: map['inActiveWeek'] is bool ? map['inActiveWeek'] as bool : null,
+      inActiveWeek:
+          map['inActiveWeek'] is bool ? map['inActiveWeek'] as bool : null,
     );
   }
 }
