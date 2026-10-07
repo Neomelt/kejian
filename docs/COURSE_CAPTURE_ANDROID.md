@@ -24,7 +24,7 @@ arguments: {
   pageTitle: String,
   rawText: String,
   cells: [{id: String, text: String, children: [String]}],
-  courses: [{id, sourceNodeId, rawText, title, teacher, room,
+  courses: [{id, sourceNodeId, rawText, title, teacher, room, credits,
              weekday, startSlot, endSlot, weeks, parity,
              duplicateGroupKey, inActiveWeek}],
   diagnostics: [String],
@@ -53,9 +53,14 @@ The native bridge retains the latest capture in memory until the Dart side calls
 `ready` and consumes it. This avoids losing a result while the Flutter activity is
 being recreated; no capture is persisted to disk.
 
+An earlier import may have saved a raw course title while leaving room, teacher, credits,
+or the week range empty or incorrect. Updating the app does not rewrite those saved rows;
+read the personal timetable again and choose “替换当前学期” after checking the field preview.
+
 ## Current limits
 
 The service is deliberately allow-listed to `com.tencent.wework` and only captures after a
-visible button tap. The parser accepts the observed `课程名 (1-2节)1-8周 教室：... 教师：...`
-shape and reports other shapes as diagnostics. PDF/share import remains the fallback for
-schools whose page does not expose accessible text.
+visible button tap. The parser accepts both the observed private-use marker layout and the
+compact no-space layout such as `…9-16周本部…老师…2.0选修`; it reports other shapes as
+diagnostics. PDF/share import remains the fallback for schools whose page does not expose
+accessible text.
