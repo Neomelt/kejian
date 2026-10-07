@@ -43,9 +43,10 @@ jobs:
           KEYSTORE_FILE="$RUNNER_TEMP/kejian-release.keystore"
           printf '%s' "$ANDROID_KEYSTORE_B64" | base64 --decode > "$KEYSTORE_FILE"
           export ANDROID_KEYSTORE_FILE="$KEYSTORE_FILE"
+          VERSION_CODE=$((GITHUB_RUN_NUMBER + 1))
           flutter build apk --release \
             --build-name="${GITHUB_REF_NAME#v}" \
-            --build-number="$GITHUB_RUN_NUMBER" \
+            --build-number="$VERSION_CODE" \
             --dart-define="KEJIAN_UPDATE_MANIFEST_URL=$UPDATE_MANIFEST_URL"
         # The signing values are supplied only through the runner environment.
       - name: Generate release metadata
@@ -55,10 +56,11 @@ jobs:
           SHA256=$(sha256sum "$APK" | cut -d' ' -f1)
           SIZE=$(stat -c '%s' "$APK")
           VERSION_NAME="${GITHUB_REF_NAME#v}"
+          VERSION_CODE=$((GITHUB_RUN_NUMBER + 1))
           cat > update.json <<EOF
           {
             "appId": "dev.kejian.kejian",
-            "versionCode": ${GITHUB_RUN_NUMBER},
+            "versionCode": ${VERSION_CODE},
             "versionName": "${VERSION_NAME}",
             "apkUrl": "PENDING_GITEE_ASSET_URL",
             "sha256": "${SHA256}",
