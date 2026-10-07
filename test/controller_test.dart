@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:kejian/app_controller.dart';
 import 'package:kejian/data/storage_repository.dart';
 import 'package:kejian/domain/models.dart';
+import 'package:kejian/domain/schedule_helpers.dart';
 import 'package:kejian/services/reminder_service.dart';
 
 class _MemoryRepository extends StorageRepository {
@@ -124,5 +125,87 @@ void main() {
     await controller.deleteCourse(course.id);
     expect(controller.data.courses, isEmpty);
     expect(controller.data.overrides, isEmpty);
+  });
+
+  test('import keeps same-title lessons with different placements', () async {
+    final repository = _MemoryRepository();
+    final controller = ScheduleController(
+      repository: repository,
+      reminderService: _NoopReminders(),
+    );
+    await controller.init();
+    await controller.saveTerm(term);
+
+    final imported = [
+      Course(
+        id: 'capture-math-monday',
+        termId: term.id,
+        title: '同名课程',
+        teacher: '同一教师',
+        room: 'A101',
+        weekday: DateTime.monday,
+        startSlot: 1,
+        endSlot: 2,
+        weeks: const [1, 2, 3],
+        color: 1,
+      ),
+      Course(
+        id: 'capture-math-thursday',
+        termId: term.id,
+        title: '同名课程',
+        teacher: '同一教师',
+        room: 'A101',
+        weekday: DateTime.thursday,
+        startSlot: 9,
+        endSlot: 11,
+        weeks: const [1, 2, 3],
+        color: 1,
+      ),
+    ];
+
+    await controller.commitImportedCourses(imported);
+
+    expect(controller.data.courses, hasLength(2));
+    expect(
+      controller.data.courses
+          .map(
+            (course) =>
+                '${course.weekday}:${course.startSlot}-${course.endSlot}',
+          )
+          .toSet(),
+      {'1:1-2', '4:9-11'},
+    );
+  });
+
+  test('import commits evening slots that exist in the term', () async {
+    final repository = _MemoryRepository();
+    final controller = ScheduleController(
+      repository: repository,
+      reminderService: _NoopReminders(),
+    );
+    await controller.init();
+    await controller.saveTerm(term);
+    final evening = Course(
+      id: 'capture-evening',
+      termId: term.id,
+      title: '晚间课程',
+      teacher: '教师',
+      room: '夜间教室',
+      weekday: DateTime.tuesday,
+      startSlot: 9,
+      endSlot: 11,
+      weeks: const [1],
+      color: 2,
+    );
+
+    await controller.commitImportedCourses([evening]);
+
+    expect(controller.data.courses, contains(evening));
+    final occurrence = occurrencesForDate(
+      controller.data,
+      term.startMonday.add(const Duration(days: 1)),
+    );
+    expect(occurrence.single.startSlot, 9);
+    expect(occurrence.single.endSlot, 11);
   });
 }

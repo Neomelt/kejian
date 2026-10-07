@@ -70,7 +70,7 @@ class CourseCaptureAccessibilityService : AccessibilityService() {
         }
         val (pageText, cells) = CourseCaptureParser.snapshot(root)
         val title = findPageTitle(pageText)
-        if (!isSchedulePage(pageText)) {
+        if (!isSchedulePage(pageText, cells)) {
             notifyUser("当前页面不是个人课表")
             return false
         }
@@ -186,10 +186,14 @@ class CourseCaptureAccessibilityService : AccessibilityService() {
         return title ?: "企业微信课表"
     }
 
-    private fun isSchedulePage(pageText: String): Boolean {
+    private fun isSchedulePage(pageText: String, cells: List<CourseCaptureCell>): Boolean {
         val hasTitle = pageText.contains("课表")
-        val hasSlots = pageText.contains("节") && pageText.contains("周")
-        return hasTitle && hasSlots
+        val hasWeeks = pageText.contains("周")
+        val hasExplicitSlots = pageText.contains("节")
+        val hasGridCells = cells.any {
+            Regex("^(?:[^/]+/)?(?:td_)?[1-7][-_]\\d{1,2}").containsMatchIn(it.resourceId)
+        }
+        return hasTitle && hasWeeks && (hasExplicitSlots || hasGridCells)
     }
 
     private fun notifyUser(message: String, long: Boolean = false) {

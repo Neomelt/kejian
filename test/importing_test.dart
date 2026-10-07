@@ -30,6 +30,24 @@ void main() {
     expect(result.hasErrors, isTrue);
   });
 
+  test('CSV retains same-title lessons at different placements', () {
+    final csv = '课程名称,教师,教室,星期,节次,周次\n'
+        '重修英语,李老师,A101,周一,1-2节,1-16周\n'
+        '重修英语,李老师,A101,周四,9-11节,1-16周\n';
+    final result = parseCsv(Uint8List.fromList(utf8.encode(csv)), testTerm());
+
+    expect(result.courses, hasLength(2));
+    expect(
+      result.courses
+          .map(
+            (course) =>
+                '${course.weekday}:${course.startSlot}-${course.endSlot}',
+          )
+          .toSet(),
+      {'1:1-2', '4:9-11'},
+    );
+  });
+
   test(
     'ICS expands supported weekly recurrence and rejects cross-day event',
     () {

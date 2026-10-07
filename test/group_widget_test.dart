@@ -129,4 +129,31 @@ void main() {
     final context = tester.element(find.text('隔周课程'));
     expect(title.style?.color, Theme.of(context).colorScheme.onSurfaceVariant);
   });
+
+  testWidgets('evening lessons render in the late timetable rows',
+      (tester) async {
+    final term = _term();
+    final controller = await _controller(
+      _schedule(term, [
+        model.Course(
+          id: 'evening',
+          termId: term.id,
+          title: '晚间课程',
+          teacher: '教师',
+          room: '夜间教室',
+          weekday: DateTime.tuesday,
+          startSlot: 9,
+          endSlot: 11,
+          weeks: const [1],
+          color: 0xFF336699,
+        ),
+      ]),
+    );
+    await tester.pumpWidget(_app(controller));
+    await tester.pumpAndSettle();
+
+    expect(find.text('晚间课程'), findsOneWidget);
+    expect(find.text('9'), findsOneWidget);
+    expect(find.text('11'), findsOneWidget);
+  });
 }
