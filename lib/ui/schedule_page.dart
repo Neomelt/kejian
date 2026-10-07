@@ -381,7 +381,7 @@ class WeekGrid extends StatelessWidget {
               Icon(Icons.swipe_outlined,
                   size: 15, color: colors.onSurfaceVariant),
               const SizedBox(width: 5),
-              Text('课程卡片可点开编辑 · 冲突课程会合并显示',
+              Text('左右滑动切换周次 · 课程卡片可点开编辑 · 冲突课程会合并显示',
                   style:
                       TextStyle(fontSize: 11, color: colors.onSurfaceVariant))
             ]),
@@ -563,6 +563,18 @@ String displayCourseTitle(String title) {
     return title.substring(0, code.start).trim();
   }
   return title;
+}
+
+String displayCourseMetadata(String value, List<String> labels) {
+  var cleaned = value
+      .replaceAll(RegExp(r'[\uE000-\uF8FF]'), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+  for (final label in labels) {
+    cleaned = cleaned.replaceFirst(
+        RegExp('^${RegExp.escape(label)}\\s*[:：]?\\s*'), '');
+  }
+  return cleaned.isEmpty ? '未设置' : cleaned;
 }
 
 Color _lessonColor(BuildContext context, DisplayOccurrence lesson) {
@@ -875,7 +887,12 @@ Future<void> showCourseDetail(
                         shape: BoxShape.circle))
               ]),
               const SizedBox(height: 16),
-              _CourseDetailFields(term: term, event: event),
+              const Text(
+                '课程信息',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              _CourseDetailFields(event: event),
               const SizedBox(height: 20),
               Wrap(spacing: 8, runSpacing: 8, children: [
                 OutlinedButton.icon(
@@ -913,21 +930,13 @@ Future<void> showCourseDetail(
 }
 
 class _CourseDetailFields extends StatelessWidget {
-  const _CourseDetailFields({required this.term, required this.event});
+  const _CourseDetailFields({required this.event});
 
-  final model.Term term;
   final model.LessonOccurrence event;
 
   @override
   Widget build(BuildContext context) {
     final course = event.course;
-    final start =
-        term.slots.where((slot) => slot.index == event.startSlot).firstOrNull;
-    final end =
-        term.slots.where((slot) => slot.index == event.endSlot).firstOrNull;
-    final time = start == null || end == null
-        ? '${weekdayName(event.date.weekday)} · 第 ${event.startSlot}-${event.endSlot} 节'
-        : '${weekdayName(event.date.weekday)}  ${formatTime(start.startMinutes)}–${formatTime(end.endMinutes)}';
     final credits = course.credits == null
         ? '未设置'
         : course.credits!.toStringAsFixed(
@@ -935,9 +944,9 @@ class _CourseDetailFields extends StatelessWidget {
           );
     final scheme = Theme.of(context).colorScheme;
     final fields = [
-      ('上课时间', time),
-      ('上课地点', course.room.trim().isEmpty ? '未设置' : course.room),
-      ('任课教师', course.teacher.trim().isEmpty ? '未设置' : course.teacher),
+      ('课程名称', displayCourseTitle(course.title)),
+      ('上课地点', displayCourseMetadata(course.room, const ['上课地点', '地点', '教室'])),
+      ('任课教师', displayCourseMetadata(course.teacher, const ['任课教师', '教师'])),
       ('学分', credits),
     ];
     return Container(

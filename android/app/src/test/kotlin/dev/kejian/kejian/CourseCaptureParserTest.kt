@@ -194,4 +194,91 @@ class CourseCaptureParserTest {
         assertEquals(setOf("嵌入式系统", "自动控制基础"), result.courses.map { it.title }.toSet())
         assertTrue(result.courses.all { it.weekday == 2 && it.startSlot == 9 })
     }
+
+    @Test
+    fun keepsPlainRoomTeacherAndCreditsFromRealWecomText() {
+        val result = CourseCaptureParser.parse(
+            listOf(
+                CourseCaptureCell(
+                    resourceId = "td_4-1",
+                    text = "汽车节能与环境保护技术 (2026-2027-1)-04530066-01 " +
+                        "本部 京江3号楼3504 刘军 (1-2节)9-16周 2.0 必修",
+                ),
+            ),
+            "个人课表 第6周",
+        )
+
+        val course = result.courses.single()
+        assertEquals("汽车节能与环境保护技术", course.title)
+        assertEquals("本部 京江3号楼3504", course.room)
+        assertEquals("刘军", course.teacher)
+        assertEquals(2.0, course.credits)
+        assertEquals(4, course.weekday)
+        assertEquals(1, course.startSlot)
+        assertEquals(2, course.endSlot)
+    }
+
+    @Test
+    fun recoversCompactFlattenedFieldsWhenAccessibilityDropsWhitespace() {
+        val result = CourseCaptureParser.parse(
+            listOf(
+                CourseCaptureCell(
+                    resourceId = "4-1",
+                    text = "汽车节能与环境保护技术(1-2节)9-16周本部京江3号楼3504刘军" +
+                        "(2026-2027-1)-04530066-01车辆2305;车辆23062.0选修",
+                ),
+            ),
+        )
+        val course = result.courses.single()
+        assertEquals("汽车节能与环境保护技术", course.title)
+        assertEquals("本部京江3号楼3504", course.room)
+        assertEquals("刘军", course.teacher)
+        assertEquals(2.0, course.credits)
+        assertEquals(listOf(9, 10, 11, 12, 13, 14, 15, 16), course.weeks)
+    }
+
+    @Test
+    fun usesReliableSourceSpanOnlyWhenProvided() {
+        val result = CourseCaptureParser.parse(
+            listOf(
+                CourseCaptureCell(
+                    resourceId = "5-9",
+                    text = "晚间块 1-8周",
+                    slotSpan = 2,
+                    childBlocks = listOf(
+                        CourseCaptureBlock(
+                            title = "晚间课程",
+                            room = "教学楼101",
+                            teacher = "甲老师",
+                            weeksText = "1-8周",
+                            rawText = "晚间课程 教学楼101 甲老师 1-8周",
+                        ),
+                    ),
+                ),
+            ),
+        )
+        assertEquals(9, result.courses.single().startSlot)
+        assertEquals(10, result.courses.single().endSlot)
+    }
+
+    @Test
+    fun parsesPrivateUseMetadataMarkersAndCreditWithoutPersonalAssumptions() {
+        val result = CourseCaptureParser.parse(
+            listOf(
+                CourseCaptureCell(
+                    resourceId = "4-1",
+                    text = "车辆工程" + '\uE023' + "(1-2节)9-16周" +
+                        '\uE062' + "本部 教学楼101" + '\uE008' + "甲老师" +
+                        '\uE021' + "(2026-2027-1)-12345678-01" +
+                        '\uE184' + '\uE184' + "2.0" + '\uE184' + "必修",
+                ),
+            ),
+        )
+        val course = result.courses.single()
+        assertEquals("车辆工程", course.title)
+        assertEquals("本部 教学楼101", course.room)
+        assertEquals("甲老师", course.teacher)
+        assertEquals(2.0, course.credits)
+        assertEquals(listOf(9, 10, 11, 12, 13, 14, 15, 16), course.weeks)
+    }
 }

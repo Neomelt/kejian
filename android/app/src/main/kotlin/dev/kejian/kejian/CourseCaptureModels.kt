@@ -14,6 +14,9 @@ data class CourseCaptureCell(
     val childTexts: List<String> = emptyList(),
     /** Flattened metadata blocks for the newer `td_D-S` grid. */
     val childBlocks: List<CourseCaptureBlock> = emptyList(),
+    /** Number of individual timetable rows spanned by this source cell.
+     * Callers must supply this only when the source exposes a reliable span. */
+    val slotSpan: Int = 1,
 )
 
 data class CourseCaptureBlock(
@@ -59,8 +62,12 @@ object CourseCaptureParser {
         "(?:第\\s*)?(\\d{1,2})\\s*[-~至到]\\s*(\\d{1,2})\\s*节"
             + "|(?:第\\s*)?(\\d{1,2})\\s*节"
     )
-    private val weekPattern = Regex("(\\d{1,2})\\s*[-~至到]\\s*(\\d{1,2})\\s*周")
-    private val singleWeekPattern = Regex("(?<![\\d-])(\\d{1,2})\\s*周")
+    private val weekExpressionPattern = Regex(
+        "(?<![\\d-])(\\d{1,2}(?:\\s*[-~至到]\\s*\\d{1,2})?" +
+            "(?:\\s*[,，、]\\s*\\d{1,2}(?:\\s*[-~至到]\\s*\\d{1,2})?)*)\\s*周",
+    )
+    private val courseNaturePattern = Regex("(?:必修|选修|任选|限选|公选|通选)")
+    private val privateUsePattern = Regex("[\\uE000-\\uF8FF]")
     private val teacherPattern = Regex(
         "(?:任课)?教师\\s*[:：]?\\s*([^\\n;；|]+?)(?=\\s+(?:教室|地点|教师|周)|$)",
     )
@@ -93,26 +100,25 @@ object CourseCaptureParser {
                 return@forEach
             }
 
-            val segments = splitCourseSegments(normalized)
-            val blockSegments = if (!normalized.contains(COURSE_MARKER) && cell.childBlocks.isNotEmpty()) {
-                cell.childBlocks.map { block ->
-                    // Keep the block's structured fields alongside its raw
-                    // text; the parser below uses these when no E023 marker
-                    // is exposed by the newer WebView.
-                    block.rawText
-                }
-            } else {
-                emptyList()
+            val blocks = cell.childBlocks.filter { block ->
+                block.rawText.isNotBlank() &&
+                    parseWeeks(block.weeksText.ifBlank { block.rawText }).first.isNotEmpty()
             }
-            val parseSegments = if (blockSegments.isNotEmpty()) {
-                blockSegments
+            // Only align structured blocks when they describe the whole cell.
+            // A decorative child or a single parent containing several courses
+            // must never shift the metadata onto a different course segment.
+            val useBlocks = blocks.isNotEmpty() &&
+                (!normalized.contains(COURSE_MARKER) ||
+                    blocks.size == normalized.count { it == COURSE_MARKER })
+            val parseSegments = if (useBlocks) {
+                blocks.map { normalize(it.rawText) }
             } else if (normalized.contains(COURSE_MARKER)) {
-                segments
+                splitCourseSegments(normalized, cell.childTexts)
             } else {
                 splitPlainCourseSegments(normalized)
             }
             parseSegments.forEachIndexed { segmentIndex, segment ->
-                val block = cell.childBlocks.getOrNull(segmentIndex)
+                val block = if (useBlocks) blocks.getOrNull(segmentIndex) else null
                 val slot = slotPattern.find(segment)
                 val weeks = parseWeeks(
                     block?.weeksText?.takeIf { it.isNotBlank() } ?: segment,
@@ -127,16 +133,17 @@ object CourseCaptureParser {
                 } ?: resourceSlot
                 val end = slot?.let { match ->
                     match.groupValues[2].ifBlank { match.groupValues[3] }.toIntOrNull()
-                } ?: resourceSlot
-                val titleEnd = slot?.range?.first
-                val code = courseCodePattern.find(segment)
-                val fallbackTitle = segment.substring(0, titleEnd ?: code?.range?.first ?: segment.length)
-                val title = block?.title?.takeIf { it.isNotBlank() }
-                    ?: cell.childTexts.getOrNull(segmentIndex)
-                    ?.takeIf { it.isNotBlank() }
-                    ?: fallbackTitle
-                        .trim(' ', '\t', '-', '—', ':', '：', '(', '（', COURSE_MARKER)
-                        .ifBlank { "未命名课程" }
+                } ?: resourceSlot?.let { it + cell.slotSpan.coerceAtLeast(1) - 1 }
+                if (start == null || end == null || start < 1 || end < start) {
+                    diagnostics += "无法识别课程节次：${cell.text}"
+                    return@forEachIndexed
+                }
+                val title = sequenceOf(
+                    block?.title,
+                    cell.childTexts.getOrNull(segmentIndex),
+                    segment,
+                ).filterNotNull().map(::courseTitle).firstOrNull { it.isNotBlank() }
+                    ?: "未命名课程"
                 val effectiveStart = start
                 val effectiveEnd = end
                 val parity = weeks.second
@@ -147,22 +154,18 @@ object CourseCaptureParser {
                 val inActiveWeek = activeWeek?.let { week ->
                     filteredWeeks.contains(week)
                 }
-                val groupKey = if (weekday != null && effectiveStart != null && effectiveEnd != null) {
-                    "$weekday:$effectiveStart:$effectiveEnd"
-                } else {
-                    null
-                }
+                val groupKey = weekday?.let { "$it:$effectiveStart:$effectiveEnd" }
                 courses += CapturedCourse(
                     id = stableId(cell.resourceId, "$segmentIndex|$segment"),
                     sourceNodeId = cell.resourceId,
                     rawText = segment,
                     title = title,
-                    teacher = block?.teacher?.takeIf { it.isNotBlank() }
-                        ?: markerValue(segment, '\uE008', '\uE021')
+                    teacher = cleanMetadata(block?.teacher.orEmpty()).takeIf { it.isNotBlank() }
+                        ?: markerValue(segment, TEACHER_MARKER)
                         .ifBlank { labelValue(teacherPattern, segment) }
                         .ifBlank { plainMetadata(segment).second },
-                    room = block?.room?.takeIf { it.isNotBlank() }
-                        ?: markerValue(segment, '\uE062', '\uE008')
+                    room = cleanMetadata(block?.room.orEmpty()).takeIf { it.isNotBlank() }
+                        ?: markerValue(segment, ROOM_MARKER)
                         .ifBlank { labelValue(roomPattern, segment) }
                         .ifBlank { plainMetadata(segment).first },
                     weekday = weekday,
@@ -228,21 +231,27 @@ object CourseCaptureParser {
         fun courseBlock(node: AccessibilityNodeInfo): CourseCaptureBlock? {
             val leaves = leafTexts(node)
             if (leaves.isEmpty()) return null
-            val title = leaves.first()
-            val weeks = leaves.firstOrNull { weekPattern.containsMatchIn(it) }.orEmpty()
-            val room = leaves.drop(1).firstOrNull {
-                it.contains("楼") || it.contains("教室") || it.contains("体育馆") || it.contains("场")
-            } ?: leaves.getOrNull(2).orEmpty()
-            val teacher = leaves.drop(1).firstOrNull {
-                it != room && !it.startsWith("(") && !it.contains("周")
-            } ?: leaves.getOrNull(3).orEmpty()
+            val raw = normalize(leaves.joinToString(" "))
+            if (parseWeeks(raw).first.isEmpty() || raw.count { it == COURSE_MARKER } > 1) {
+                return null
+            }
+            val title = courseTitle(leaves.first())
+            val plain = plainMetadata(raw)
+            // Missing metadata stays missing. Positional fallbacks such as
+            // leaves[2]/leaves[3] can mistake a time or a week for room/teacher.
+            val room = markerValue(raw, ROOM_MARKER)
+                .ifBlank { labelValue(roomPattern, raw) }
+                .ifBlank { plain.first }
+            val teacher = markerValue(raw, TEACHER_MARKER)
+                .ifBlank { labelValue(teacherPattern, raw) }
+                .ifBlank { plain.second }
             return CourseCaptureBlock(
                 title = title,
-                room = room,
-                teacher = teacher,
-                weeksText = weeks,
-                rawText = leaves.joinToString(" "),
-                credits = parseCredits(leaves.joinToString(" ")),
+                room = cleanMetadata(room),
+                teacher = cleanMetadata(teacher),
+                weeksText = raw,
+                rawText = raw,
+                credits = parseCredits(raw),
             )
         }
 
@@ -295,15 +304,15 @@ object CourseCaptureParser {
 
     private fun parseWeeks(text: String): Pair<List<Int>, String> {
         val values = linkedSetOf<Int>()
-        weekPattern.findAll(text).forEach { match ->
-            val start = match.groupValues[1].toInt()
-            val end = match.groupValues[2].toInt()
-            if (end >= start && end - start <= 64) {
-                (start..end).forEach { values.add(it) }
+        weekExpressionPattern.findAll(text).forEach { match ->
+            match.groupValues[1].split(Regex("[,，、]")).forEach { part ->
+                val bounds = part.trim().split(Regex("[-~至到]")).map { it.trim().toInt() }
+                val start = bounds.first()
+                val end = bounds.last()
+                if (start in 1..64 && end in start..64) {
+                    (start..end).forEach { values.add(it) }
+                }
             }
-        }
-        if (values.isEmpty()) singleWeekPattern.findAll(text).forEach {
-            values += it.groupValues[1].toInt()
         }
         val parity = when {
             Regex("双周|\\(\\s*双\\s*\\)").containsMatchIn(text) -> "even"
@@ -331,42 +340,113 @@ object CourseCaptureParser {
     private fun labelValue(pattern: Regex, text: String): String =
         pattern.find(text)?.groupValues?.getOrNull(1)?.trim().orEmpty()
 
-    private fun splitCourseSegments(text: String): List<String> {
+    private fun courseTitle(text: String): String {
+        val normalized = normalize(text)
+        val end = listOfNotNull(
+            normalized.indexOf(COURSE_MARKER).takeIf { it >= 0 },
+            courseCodePattern.find(normalized)?.range?.first,
+            slotPattern.find(normalized)?.range?.first,
+        ).minOrNull() ?: normalized.length
+        return normalized.substring(0, end)
+            .trim(' ', '\t', '-', '—', ':', '：', '(', '（')
+    }
+
+    private fun splitCourseSegments(text: String, childTitles: List<String>): List<String> {
         if (!text.contains(COURSE_MARKER)) return listOf(text)
-        return text.split(COURSE_MARKER)
-            .drop(1)
-            .map { "$COURSE_MARKER$it" }
+        val markers = text.indices.filter { text[it] == COURSE_MARKER }
+        // The icon occurs AFTER the title. Splitting at it loses that title
+        // and appends the following title to the preceding course's metadata.
+        val starts = mutableListOf(0)
+        markers.drop(1).forEachIndexed { index, marker ->
+            val previousMarker = markers[index]
+            val prefix = text.substring(previousMarker + 1, marker)
+            val childTitle = childTitles.getOrNull(index + 1)?.let(::courseTitle)
+                ?.takeIf { it.isNotBlank() }
+            val titleStart = childTitle?.let { text.lastIndexOf(it, marker - 1) }
+                ?.takeIf { it > previousMarker }
+                ?: courseNaturePattern.findAll(prefix).lastOrNull()?.range?.last?.let {
+                    previousMarker + 1 + it + 1
+                }
+            // Without a reliable field boundary keep the text intact rather
+            // than borrowing a neighboring course's weeks or teacher.
+            if (titleStart == null) return listOf(text)
+            starts += titleStart
+        }
+        return (starts + text.length).zipWithNext().map { (start, end) ->
+            text.substring(start, end).trim()
+        }
     }
 
     private fun splitPlainCourseSegments(text: String): List<String> {
         val codes = courseCodePattern.findAll(text).toList()
         if (codes.size <= 1) return listOf(text)
-        val starts = codes.drop(1).mapNotNull { code ->
-            weekPattern.findAll(text.substring(0, code.range.first)).lastOrNull()?.range?.last?.plus(1)
+        val starts = codes.zipWithNext().mapNotNull { (previousCode, nextCode) ->
+            val metadata = text.substring(previousCode.range.last + 1, nextCode.range.first)
+            val week = weekExpressionPattern.findAll(metadata).lastOrNull() ?: return@mapNotNull null
+            val weekEnd = week.range.last + 1
+            val trailing = metadata.substring(weekEnd)
+            val natureEnd = courseNaturePattern.find(trailing)?.range?.last?.plus(1)
+            val parityEnd = Regex("^\\s*\\(?[单双]\\)?(?:周)?")
+                .find(trailing)?.range?.last?.plus(1) ?: 0
+            previousCode.range.last + 1 + weekEnd + (natureEnd ?: parityEnd)
         }
         if (starts.size != codes.size - 1) return listOf(text)
         val boundaries = listOf(0) + starts + listOf(text.length)
         return boundaries.zipWithNext().map { (start, end) -> text.substring(start, end).trim() }
     }
 
-    private fun markerValue(text: String, startMarker: Char, endMarker: Char): String {
+    private fun markerValue(text: String, startMarker: Char): String {
         val start = text.indexOf(startMarker)
         if (start < 0) return ""
         val valueStart = start + 1
-        val end = text.indexOf(endMarker, valueStart).takeIf { it >= 0 } ?: text.length
-        return text.substring(valueStart, end).trim()
+        val end = privateUsePattern.find(text, valueStart)?.range?.first ?: text.length
+        return cleanMetadata(text.substring(valueStart, end))
     }
 
-    private fun parseCredits(text: String): Double? =
-        Regex("(?:^|\\s)(\\d+(?:\\.\\d+)?)\\s+(?:必修|选修|任选|限选)(?:\\s|$)")
-            .find(text)?.groupValues?.getOrNull(1)?.toDoubleOrNull()
+    private fun parseCredits(text: String): Double? {
+        val normalized = text.replace(privateUsePattern, " ")
+        val labeled = Regex("(?:课程)?学分\\s*[:：]?\\s*(\\d+(?:\\.\\d+)?)")
+            .find(normalized)?.groupValues?.getOrNull(1)?.toDoubleOrNull()
+        if (labeled != null) return labeled
+        // In compact accessibility text, a decimal credit value may touch the
+        // class code immediately before it (e.g. “车辆23062.0选修”). Decimal
+        // matching avoids treating the trailing class number as credits.
+        val compactDecimal = Regex("([0-9]\\.[0-9]+)(?=\\s*(?:必修|选修|任选|限选|公选|通选))")
+            .find(normalized)?.groupValues?.getOrNull(1)?.toDoubleOrNull()
+        if (compactDecimal != null) return compactDecimal
+        return Regex("(?:^|\\s|[)）])([0-9]+(?:\\.[0-9]+)?)\\s*(?:必修|选修|任选|限选|公选|通选)(?:\\s|$)")
+            .find(normalized)?.groupValues?.getOrNull(1)?.toDoubleOrNull()
+    }
+
+    private fun cleanMetadata(value: String): String = value
+        .replace(privateUsePattern, " ")
+        .replace(Regex("^(?:上课地点|地点|教室|任课教师|教师)\\s*[:：]?\\s*"), "")
+        .replace(Regex("\\s+"), " ")
+        .trim()
 
     private fun plainMetadata(text: String): Pair<String, String> {
         val code = courseCodePattern.find(text) ?: return "" to ""
-        val week = weekPattern.find(text) ?: return "" to ""
-        if (week.range.first <= code.range.last) return "" to ""
-        val middle = text.substring(code.range.last + 1, week.range.first).trim()
-        val split = Regex("^(.*)\\s+([^\\s]+)$").find(middle) ?: return middle to ""
+        val week = weekExpressionPattern.find(text) ?: return "" to ""
+        val middle = if (week.range.last < code.range.first) {
+            text.substring(week.range.last + 1, code.range.first)
+        } else if (code.range.last < week.range.first) {
+            text.substring(code.range.last + 1, week.range.first)
+        } else {
+            return "" to ""
+        }
+        val cleaned = middle
+            .replace(Regex("\\([^)]*节\\)"), " ")
+            .replace(slotPattern, " ")
+            .replace(privateUsePattern, " ")
+            .let(::cleanMetadata)
+        if (cleaned.isBlank()) return "" to ""
+        val roomMatch = Regex("^(.*(?:楼|教室|体育馆|场)[0-9A-Za-z()（）号-]*)(.*)$")
+            .find(cleaned)
+        if (roomMatch != null) {
+            return roomMatch.groupValues[1].trim() to roomMatch.groupValues[2].trim()
+        }
+        val split = Regex("^(.*)\\s+([^\\s]+)$").find(cleaned)
+            ?: return cleaned to ""
         return split.groupValues[1].trim() to split.groupValues[2].trim()
     }
 
@@ -379,4 +459,6 @@ object CourseCaptureParser {
     }
 
     private const val COURSE_MARKER = '\uE023'
+    private const val ROOM_MARKER = '\uE062'
+    private const val TEACHER_MARKER = '\uE008'
 }

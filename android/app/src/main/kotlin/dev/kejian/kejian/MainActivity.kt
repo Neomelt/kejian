@@ -98,7 +98,10 @@ class MainActivity : FlutterActivity() {
                         }
                     }
                     "openUjsAdapter" -> {
-                        startActivity(Intent(this, UjsWebViewActivity::class.java))
+                        val intent = Intent(this, UjsWebViewActivity::class.java)
+                        call.argument<String>("startUrl")?.trim()?.takeIf { it.isNotEmpty() }
+                            ?.let { intent.putExtra(UjsWebViewActivity.EXTRA_START_URL, it) }
+                        startActivity(intent)
                         result.success(true)
                     }
                     else -> result.notImplemented()

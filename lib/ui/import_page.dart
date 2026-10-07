@@ -51,7 +51,41 @@ class _ImportPageState extends State<ImportPage> {
   }
 
   Future<void> _openUjsAdapter() async {
-    final ok = await capture.openUjsAdapter();
+    final urlController = TextEditingController(text: 'https://jwc.ujs.edu.cn');
+    final url = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('教务系统入口'),
+        content: TextField(
+          controller: urlController,
+          keyboardType: TextInputType.url,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: '入口地址',
+            hintText: 'https://…',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, urlController.text),
+            child: const Text('打开'),
+          ),
+        ],
+      ),
+    );
+    urlController.dispose();
+    if (url == null || url.trim().isEmpty || !mounted) return;
+    final parsed = Uri.tryParse(url.trim());
+    if (parsed == null ||
+        (parsed.scheme != 'https' && parsed.scheme != 'http')) {
+      _notice('请输入 http 或 https 教务系统入口');
+      return;
+    }
+    final ok = await capture.openUjsAdapter(startUrl: parsed.toString());
     if (mounted && !ok) _notice('当前平台不支持教务系统适配器');
   }
 
@@ -520,6 +554,46 @@ class ImportPreview extends StatelessWidget {
                   const SizedBox(height: 7),
                   Text(
                       '${result.sourceLabel}  ·  识别 ${result.courses.length} 门课程，跳过 ${result.skippedRows} 行'),
+                  if (isCapture && result.courses.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Text('字段预览', style: Theme.of(context).textTheme.labelLarge),
+                    const SizedBox(height: 6),
+                    Container(
+                      constraints: const BoxConstraints(maxHeight: 190),
+                      decoration: BoxDecoration(
+                        color: scheme.surfaceContainerHighest
+                            .withValues(alpha: .42),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: ListView.separated(
+                        shrinkWrap: true,
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        itemCount: result.courses.length > 5
+                            ? 5
+                            : result.courses.length,
+                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        itemBuilder: (_, index) {
+                          final course = result.courses[index];
+                          final room = course.room.trim().isEmpty
+                              ? '地点未识别'
+                              : course.room.trim();
+                          final teacher = course.teacher.trim().isEmpty
+                              ? '教师未识别'
+                              : course.teacher.trim();
+                          final credits = course.credits == null
+                              ? '学分未识别'
+                              : '学分 ${course.credits}';
+                          return ListTile(
+                            dense: true,
+                            title: Text(course.title,
+                                maxLines: 1, overflow: TextOverflow.ellipsis),
+                            subtitle: Text('$room · $teacher · $credits',
+                                maxLines: 1, overflow: TextOverflow.ellipsis),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
                   if (errors.isNotEmpty)
                     Padding(
                         padding: const EdgeInsets.only(top: 14),

@@ -152,12 +152,12 @@ void main() {
     await tester.tap(find.text('课程详情'));
     await tester.pumpAndSettle();
 
-    expect(find.text('上课时间'), findsOneWidget);
+    expect(find.text('课程名称'), findsOneWidget);
     expect(find.text('上课地点'), findsOneWidget);
     expect(find.text('任课教师'), findsOneWidget);
     expect(find.text('学分'), findsOneWidget);
     expect(find.text('2'), findsNWidgets(2));
-    expect(find.text('周一  08:00–09:40'), findsOneWidget);
+    expect(find.text('detail 教室'), findsAtLeastNWidgets(1));
   });
 
   testWidgets('evening lessons render in the late timetable rows',

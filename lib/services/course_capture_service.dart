@@ -41,7 +41,11 @@ class CourseCaptureService {
 
   /// Opens the Jiangsu University adapter WebView. Login stays inside the
   /// system WebView and the page is parsed locally before returning here.
-  Future<bool> openUjsAdapter() => _boolCall('openUjsAdapter');
+  Future<bool> openUjsAdapter({String? startUrl}) =>
+      _boolCall('openUjsAdapter', arguments: {
+        if (startUrl != null && startUrl.trim().isNotEmpty)
+          'startUrl': startUrl.trim(),
+      });
 
   /// Requests one capture from the currently active accessibility window.
   Future<bool> capture() => _boolCall('capture');
@@ -67,9 +71,10 @@ class CourseCaptureService {
     );
   }
 
-  Future<bool> _boolCall(String method) async {
+  Future<bool> _boolCall(String method,
+      {Map<String, Object?>? arguments}) async {
     try {
-      return await _channel.invokeMethod<bool>(method) ?? false;
+      return await _channel.invokeMethod<bool>(method, arguments) ?? false;
     } on MissingPluginException {
       return false;
     } on PlatformException {

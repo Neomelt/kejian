@@ -57,7 +57,14 @@ class UjsWebViewActivity : Activity() {
             settings.allowFileAccess = false
             settings.allowContentAccess = false
             webViewClient = WebViewClient()
-            loadUrl(START_URL)
+            val startUrl = intent.getStringExtra(EXTRA_START_URL)
+                ?.trim()
+                ?.takeIf { it.startsWith("https://") || it.startsWith("http://") }
+            if (startUrl == null) {
+                status.text = "请从课间导入页填写教务系统入口地址"
+            } else {
+                loadUrl(startUrl)
+            }
         }
         root.addView(webView, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
@@ -132,7 +139,7 @@ class UjsWebViewActivity : Activity() {
     }
 
     companion object {
-        private const val START_URL = "https://jwc.ujs.edu.cn"
+        const val EXTRA_START_URL = "dev.kejian.startUrl"
         private const val SOURCE_PACKAGE = "dev.kejian.ujs_webview"
         private const val EXTRACT_SCRIPT = """
             (function() {
