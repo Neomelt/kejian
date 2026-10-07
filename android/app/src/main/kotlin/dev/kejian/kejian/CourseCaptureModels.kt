@@ -80,7 +80,10 @@ object CourseCaptureParser {
             if (normalized.isBlank()) return@forEach
             val dedupeKey = "${cell.resourceId}|$normalized"
             if (!seen.add(dedupeKey)) return@forEach
-            if (!normalized.contains("节") && cell.childBlocks.isEmpty()) {
+            val (cellWeekday, cellSlot) = parseResourceId(cell.resourceId)
+            if (!normalized.contains("节") && cell.childBlocks.isEmpty() &&
+                (cellWeekday == null || cellSlot == null)
+            ) {
                 if (normalized.contains("周")) {
                     diagnostics += "无法识别课程单元格：${cell.text}"
                 }
@@ -98,14 +101,20 @@ object CourseCaptureParser {
             } else {
                 emptyList()
             }
-            val parseSegments = if (blockSegments.isNotEmpty()) blockSegments else segments
+            val parseSegments = if (blockSegments.isNotEmpty()) {
+                blockSegments
+            } else if (normalized.contains(COURSE_MARKER)) {
+                segments
+            } else {
+                splitPlainCourseSegments(normalized)
+            }
             parseSegments.forEachIndexed { segmentIndex, segment ->
                 val block = cell.childBlocks.getOrNull(segmentIndex)
                 val slot = slotPattern.find(segment)
                 val weeks = parseWeeks(
                     block?.weeksText?.takeIf { it.isNotBlank() } ?: segment,
                 )
-                val (weekday, resourceSlot) = parseResourceId(cell.resourceId)
+                val (weekday, resourceSlot) = cellWeekday to cellSlot
                 if ((slot == null && resourceSlot == null) || weeks.first.isEmpty()) {
                     diagnostics += "无法识别课程单元格：${cell.text}"
                     return@forEachIndexed
@@ -116,8 +125,9 @@ object CourseCaptureParser {
                 val end = slot?.let { match ->
                     match.groupValues[2].ifBlank { match.groupValues[3] }.toIntOrNull()
                 } ?: resourceSlot
-                val titleEnd = slot?.range?.first ?: segment.length
-                val fallbackTitle = segment.substring(0, titleEnd)
+                val titleEnd = slot?.range?.first
+                val code = courseCodePattern.find(segment)
+                val fallbackTitle = segment.substring(0, titleEnd ?: code?.range?.first ?: segment.length)
                 val title = block?.title?.takeIf { it.isNotBlank() }
                     ?: cell.childTexts.getOrNull(segmentIndex)
                     ?.takeIf { it.isNotBlank() }
@@ -296,6 +306,17 @@ object CourseCaptureParser {
             .map { "$COURSE_MARKER$it" }
     }
 
+    private fun splitPlainCourseSegments(text: String): List<String> {
+        val codes = courseCodePattern.findAll(text).toList()
+        if (codes.size <= 1) return listOf(text)
+        val starts = codes.drop(1).mapNotNull { code ->
+            weekPattern.findAll(text.substring(0, code.range.first)).lastOrNull()?.range?.last?.plus(1)
+        }
+        if (starts.size != codes.size - 1) return listOf(text)
+        val boundaries = listOf(0) + starts + listOf(text.length)
+        return boundaries.zipWithNext().map { (start, end) -> text.substring(start, end).trim() }
+    }
+
     private fun markerValue(text: String, startMarker: Char, endMarker: Char): String {
         val start = text.indexOf(startMarker)
         if (start < 0) return ""
@@ -303,6 +324,8 @@ object CourseCaptureParser {
         val end = text.indexOf(endMarker, valueStart).takeIf { it >= 0 } ?: text.length
         return text.substring(valueStart, end).trim()
     }
+
+    private val courseCodePattern = Regex("\\(\\d{4}-\\d{4}-\\d\\)-[A-Za-z0-9-]+")
 
     private fun stableId(resourceId: String, text: String): String {
         val bytes = MessageDigest.getInstance("SHA-256")

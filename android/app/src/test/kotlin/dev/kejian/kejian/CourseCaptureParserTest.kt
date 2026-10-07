@@ -174,4 +174,22 @@ class CourseCaptureParserTest {
         assertEquals(4, result.courses.single().weekday)
         assertEquals("大学物理A(II)", result.courses.single().title)
     }
+
+    @Test
+    fun parsesPlainTdCellTextWhenAccessibilityHasNoNestedBlocks() {
+        val result = CourseCaptureParser.parse(
+            listOf(
+                CourseCaptureCell(
+                    resourceId = "td_2-9",
+                    text = "嵌入式系统 (2026-2027-1)-04530051-04 本部 京江2号楼2213 岳慧裕 1-8周 " +
+                        "自动控制基础 (2026-2027-1)-04520033-01 本部 三江楼0203 马世典,高岩 4-14周",
+                ),
+            ),
+            "学生课表查询（按周次） 周次:5",
+        )
+
+        assertEquals(2, result.courses.size)
+        assertEquals(setOf("嵌入式系统", "自动控制基础"), result.courses.map { it.title }.toSet())
+        assertTrue(result.courses.all { it.weekday == 2 && it.startSlot == 9 })
+    }
 }
