@@ -16,7 +16,7 @@ jobs:
       GITEE_REPO: ${{ vars.GITEE_REPO || 'kejian-mirror' }}
       GITEE_BRANCH: ${{ vars.GITEE_BRANCH || 'master' }}
       GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-      UPDATE_MANIFEST_URL: https://gitee.com/${{ vars.GITEE_OWNER }}/${{ vars.GITEE_REPO }}/raw/${{ vars.GITEE_BRANCH || 'master' }}/update.json
+      UPDATE_MANIFEST_URL: https://gitee.com/${{ vars.GITEE_OWNER || 'Xlqmu' }}/${{ vars.GITEE_REPO || 'kejian-mirror' }}/raw/${{ vars.GITEE_BRANCH || 'master' }}/update.json
     steps:
       - uses: actions/checkout@v4
       - name: Validate Gitee configuration
